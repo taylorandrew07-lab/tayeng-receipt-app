@@ -94,6 +94,14 @@ export function Uploader() {
                   {it.name}
                 </span>
                 <StatusBadge item={it} />
+                {it.status === "done" && it.receiptId && (
+                  <a
+                    href={`/receipts/${it.receiptId}`}
+                    className="text-sm font-medium text-slate-900 underline"
+                  >
+                    Open
+                  </a>
+                )}
               </li>
             ))}
           </ul>

@@ -9,11 +9,13 @@ export default async function ReviewPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("receipts")
-    .select("*")
+    .select("*, receipt_files(file_name)")
     .eq("status", "needs_review")
     .order("created_at", { ascending: false });
 
-  const rows = (data ?? []) as Receipt[];
+  const rows = (data ?? []) as (Receipt & {
+    receipt_files: { file_name: string }[];
+  })[];
 
   return (
     <div>
@@ -42,6 +44,11 @@ export default async function ReviewPage() {
                         {r.receipt_date ?? "no date"}
                       </span>
                     </p>
+                    {r.receipt_files?.[0]?.file_name && (
+                      <p className="mt-0.5 truncate text-xs text-slate-400">
+                        📎 {r.receipt_files[0].file_name}
+                      </p>
+                    )}
                     <p className="mt-1 text-sm text-amber-700">
                       {r.notes ?? "Needs review"}
                     </p>

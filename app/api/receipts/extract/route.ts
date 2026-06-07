@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractDocument } from "@/lib/extraction/extract";
-import { classify } from "@/lib/classification/classify";
+import { classify, normalizeVendor } from "@/lib/classification/classify";
 import type { Card, Category, LearningRule } from "@/lib/types";
 
 export const maxDuration = 60; // allow time for model extraction
@@ -77,7 +77,11 @@ export async function POST(request: NextRequest) {
   // Extract with Claude, then classify with the user's rules.
   let extraction;
   try {
-    extraction = await extractDocument({ base64, mediaType });
+    extraction = await extractDocument({
+      base64,
+      mediaType,
+      fileName: file.file_name,
+    });
   } catch (e) {
     await supabase
       .from("receipts")
@@ -105,9 +109,34 @@ export async function POST(request: NextRequest) {
     usdToTtdRate: Number(settings?.usd_to_ttd_rate ?? 6.8),
   });
 
+  // --- Duplicate detection ---------------------------------------------
+  // Same date + same vendor + (near) same TTD amount as an existing receipt.
+  let duplicateOf: string | null = null;
+  if (result.vendor_name && result.receipt_date && result.ttd_amount != null) {
+    const norm = normalizeVendor(result.vendor_name);
+    const { data: candidates } = await supabase
+      .from("receipts")
+      .select("id, vendor_name, ttd_amount")
+      .eq("receipt_date", result.receipt_date)
+      .neq("id", receiptId)
+      .is("duplicate_of", null);
+    const match = (candidates ?? []).find(
+      (c) =>
+        normalizeVendor(c.vendor_name) === norm &&
+        Math.abs(Number(c.ttd_amount ?? 0) - Number(result.ttd_amount)) < 0.01
+    );
+    if (match) duplicateOf = match.id;
+  }
+
+  const reviewReasons = duplicateOf
+    ? ["Possible duplicate of an existing receipt", ...result.review_reasons]
+    : result.review_reasons;
+  const finalStatus = duplicateOf ? "needs_review" : result.status;
+
   const { error: upError } = await supabase
     .from("receipts")
     .update({
+      duplicate_of: duplicateOf,
       doc_type: result.doc_type,
       receipt_date: result.receipt_date,
       month_key: result.month_key,
@@ -121,13 +150,10 @@ export async function POST(request: NextRequest) {
       card_last4: result.card_last4,
       category_id: result.category_id,
       reimbursable: result.reimbursable,
-      status: result.status,
+      status: finalStatus,
       confidence: result.confidence,
       raw_extraction: extraction,
-      notes:
-        result.review_reasons.length > 0
-          ? result.review_reasons.join("; ")
-          : null,
+      notes: reviewReasons.length > 0 ? reviewReasons.join("; ") : null,
     })
     .eq("id", receiptId);
 
@@ -135,7 +161,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: upError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, status: result.status, result });
+  return NextResponse.json({
+    ok: true,
+    status: finalStatus,
+    duplicate: Boolean(duplicateOf),
+    result,
+  });
 }
 
 function resolveMediaType(mime: string | null, fileName: string): string {

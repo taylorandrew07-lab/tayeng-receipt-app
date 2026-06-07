@@ -93,6 +93,7 @@ export type Receipt = {
   confidence: number | null;
   raw_extraction: ExtractionResult | null;
   notes: string | null;
+  duplicate_of: string | null;
   created_at: string;
   updated_at: string;
 };

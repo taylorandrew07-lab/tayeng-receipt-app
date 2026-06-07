@@ -139,9 +139,9 @@ export function classify(input: ClassifyInput): ClassifyResult {
   }
 
   // --- Month bucket -----------------------------------------------------
-  const month_key = extraction.receipt_date
-    ? extraction.receipt_date.slice(0, 7)
-    : monthKeyOf(input.uploadedAt ?? new Date());
+  // The monthly workspace is organised by UPLOAD date, not the receipt's own
+  // date — so everything you upload this month lands in this month's workspace.
+  const month_key = monthKeyOf(input.uploadedAt ?? new Date());
   if (!extraction.receipt_date) reasons.push("Date could not be read");
 
   if (extraction.doc_type === "unknown") reasons.push("Document type unclear");

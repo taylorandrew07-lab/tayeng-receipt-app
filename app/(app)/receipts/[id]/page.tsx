@@ -64,7 +64,12 @@ export default async function ReceiptEditPage({
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-sm font-semibold text-slate-700">Original document</p>
+          <p className="text-sm font-semibold text-slate-700">Original document</p>
+          {file?.file_name && (
+            <p className="mb-3 mt-0.5 truncate text-xs text-slate-400">
+              📎 {file.file_name}
+            </p>
+          )}
           {!fileUrl ? (
             <p className="text-sm text-slate-400">No file attached.</p>
           ) : isPdf ? (

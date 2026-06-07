@@ -59,7 +59,9 @@ export async function saveReceipt(
   const reimbursable =
     reimbursableRaw === "yes" ? true : reimbursableRaw === "no" ? false : null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  const month_key = receipt_date ? receipt_date.slice(0, 7) : null;
+  // Note: month_key (upload month) is intentionally NOT changed here — the
+  // workspace is organised by upload date, and editing the receipt date must
+  // not move the receipt to a different month.
 
   if (!PAYMENT_METHODS.includes(payment_method)) {
     return { error: "Invalid payment method." };
@@ -70,7 +72,6 @@ export async function saveReceipt(
     .update({
       vendor_name,
       receipt_date,
-      month_key,
       currency,
       amount,
       ttd_amount,
@@ -114,6 +115,30 @@ export async function saveReceipt(
   revalidatePath("/receipts");
   revalidatePath("/review");
   redirect("/receipts");
+}
+
+/**
+ * Deletes many receipts at once (bulk "delete selected" / "start over").
+ * Removes their stored files first. RLS scopes everything to the user.
+ */
+export async function deleteReceipts(ids: string[]): Promise<void> {
+  "use server";
+  if (!ids || ids.length === 0) return;
+  const supabase = await createClient();
+
+  const { data: files } = await supabase
+    .from("receipt_files")
+    .select("storage_path")
+    .in("receipt_id", ids);
+  if (files && files.length > 0) {
+    await supabase.storage
+      .from("documents")
+      .remove(files.map((f) => f.storage_path));
+  }
+  await supabase.from("receipts").delete().in("id", ids);
+
+  revalidatePath("/receipts");
+  revalidatePath("/review");
 }
 
 export async function deleteReceipt(formData: FormData): Promise<void> {

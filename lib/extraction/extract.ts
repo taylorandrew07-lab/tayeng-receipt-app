@@ -53,6 +53,7 @@ Extract the requested fields. Rules:
 type ExtractInput = {
   base64: string;
   mediaType: string; // e.g. "image/jpeg" or "application/pdf"
+  fileName?: string; // the user may type hints (e.g. card last 4) into the name
 };
 
 const IMAGE_TYPES = new Set([
@@ -65,8 +66,13 @@ const IMAGE_TYPES = new Set([
 export async function extractDocument({
   base64,
   mediaType,
+  fileName,
 }: ExtractInput): Promise<ExtractionResult> {
   const client = new Anthropic();
+
+  const fileNameHint = fileName
+    ? `\n\nThe uploaded file is named: "${fileName}". Users often type useful hints into the file name — most commonly a card's last 4 digits, a vendor name, or a date. If the document itself doesn't clearly show one of these but the file name does, use the file name as the source for that field (especially card_last4).`
+    : "";
 
   const docBlock: Anthropic.ContentBlockParam =
     mediaType === "application/pdf"
@@ -91,7 +97,7 @@ export async function extractDocument({
     messages: [
       {
         role: "user",
-        content: [docBlock, { type: "text", text: PROMPT }],
+        content: [docBlock, { type: "text", text: PROMPT + fileNameHint }],
       },
     ],
     output_config: { format: zodOutputFormat(ExtractionSchema) },
