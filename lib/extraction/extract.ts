@@ -3,10 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import type { ExtractionResult } from "@/lib/types";
-
-// Model used for document extraction. Opus is the most capable; to reduce cost
-// per document you can switch this to "claude-sonnet-4-6" or "claude-haiku-4-5".
-const EXTRACTION_MODEL = "claude-opus-4-8";
+import { EXTRACTION_MODEL } from "@/lib/extraction/model";
 
 const ExtractionSchema = z.object({
   doc_type: z.enum(["receipt", "invoice", "statement", "unknown"]),
