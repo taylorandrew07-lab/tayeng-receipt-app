@@ -49,6 +49,10 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .single();
   if (!file) {
+    await supabase
+      .from("receipts")
+      .update({ status: "needs_review", notes: "No file was attached." })
+      .eq("id", receiptId);
     return NextResponse.json({ error: "No file for receipt" }, { status: 400 });
   }
 
@@ -57,6 +61,10 @@ export async function POST(request: NextRequest) {
     .from("documents")
     .download(file.storage_path);
   if (dlError || !blob) {
+    await supabase
+      .from("receipts")
+      .update({ status: "needs_review", notes: "Could not read the uploaded file." })
+      .eq("id", receiptId);
     return NextResponse.json(
       { error: "Could not read uploaded file" },
       { status: 500 }

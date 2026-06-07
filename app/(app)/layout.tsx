@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell/app-shell";
+import { UploadQueueProvider } from "@/components/upload/upload-queue";
 
 export default async function AppLayout({
   children,
@@ -25,5 +26,9 @@ export default async function AppLayout({
 
   const userLabel = profile?.full_name?.trim() || user.email || "Account";
 
-  return <AppShell userLabel={userLabel}>{children}</AppShell>;
+  return (
+    <UploadQueueProvider>
+      <AppShell userLabel={userLabel}>{children}</AppShell>
+    </UploadQueueProvider>
+  );
 }
