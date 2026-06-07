@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useActionState, useState } from "react";
 import { login, signup, type AuthState } from "@/lib/auth/actions";
 
@@ -14,7 +15,15 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Image
+            src="/logo.png"
+            alt="Tayeng Receipts"
+            width={88}
+            height={88}
+            priority
+            className="mb-3"
+          />
           <h1 className="text-2xl font-bold text-slate-900">Tayeng Receipts</h1>
           <p className="mt-1 text-sm text-slate-500">
             Receipt &amp; expense processing

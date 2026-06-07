@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { NAV_GROUPS } from "./nav";
 import { signout } from "@/lib/auth/actions";
@@ -20,7 +21,10 @@ export function AppShell({
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Mobile top bar */}
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-        <span className="font-semibold">Tayeng Receipts</span>
+        <span className="flex items-center gap-2 font-semibold">
+          <Image src="/logo.png" alt="" width={28} height={28} />
+          Tayeng Receipts
+        </span>
         <button
           onClick={() => setOpen((v) => !v)}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
@@ -37,7 +41,8 @@ export function AppShell({
             open ? "block" : "hidden"
           } w-full border-b border-slate-200 bg-white md:sticky md:top-0 md:block md:h-screen md:w-64 md:border-b-0 md:border-r`}
         >
-          <div className="hidden px-5 py-5 md:block">
+          <div className="hidden items-center gap-2 px-5 py-5 md:flex">
+            <Image src="/logo.png" alt="" width={32} height={32} />
             <span className="text-lg font-bold">Tayeng Receipts</span>
           </div>
 
