@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { StatementUploader } from "@/components/statements/statement-uploader";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteStatement } from "@/lib/statements/actions";
 
 type StatementRow = {
   id: string;
@@ -40,23 +42,27 @@ export default async function StatementsPage() {
       ) : (
         <ul className="space-y-3">
           {statements.map((st) => (
-            <li key={st.id}>
-              <Link
-                href={`/statements/${st.id}`}
-                className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">{st.file_name}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {st.period_start && st.period_end
-                      ? `${st.period_start} → ${st.period_end}`
-                      : "Period not detected"}
-                  </p>
-                </div>
-                <span className="whitespace-nowrap text-sm text-slate-500">
-                  {st.statement_transactions?.[0]?.count ?? 0} transactions
-                </span>
+            <li
+              key={st.id}
+              className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow"
+            >
+              <Link href={`/statements/${st.id}`} className="min-w-0 flex-1">
+                <p className="truncate font-medium text-slate-900">{st.file_name}</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {st.period_start && st.period_end
+                    ? `${st.period_start} → ${st.period_end}`
+                    : "Period not detected"}
+                </p>
               </Link>
+              <span className="whitespace-nowrap text-sm text-slate-500">
+                {st.statement_transactions?.[0]?.count ?? 0} transactions
+              </span>
+              <DeleteButton
+                action={deleteStatement}
+                id={st.id}
+                label="Delete"
+                confirmText={`Delete "${st.file_name}" and its transactions? This cannot be undone.`}
+              />
             </li>
           ))}
         </ul>

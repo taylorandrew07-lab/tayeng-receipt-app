@@ -174,6 +174,10 @@ export function ReceiptEditor({
           type="submit"
           formAction={deleteReceipt}
           formNoValidate
+          onClick={(e) => {
+            if (!window.confirm("Delete this receipt? This cannot be undone."))
+              e.preventDefault();
+          }}
           className="text-sm text-slate-400 hover:text-red-700"
         >
           Delete receipt

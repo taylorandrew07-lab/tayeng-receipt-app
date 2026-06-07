@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
+import { DeleteButton } from "@/components/delete-button";
 import { deleteStatement } from "@/lib/statements/actions";
 import { formatTTD } from "@/lib/month";
 import type { Statement, StatementTransaction } from "@/lib/types";
@@ -97,15 +98,15 @@ export default async function StatementDetailPage({
         </div>
       )}
 
-      <form action={deleteStatement} className="mt-6">
-        <input type="hidden" name="id" value={st.id} />
-        <button
-          type="submit"
+      <div className="mt-6">
+        <DeleteButton
+          action={deleteStatement}
+          id={st.id}
+          label="Delete statement"
           className="text-sm text-slate-400 hover:text-red-700"
-        >
-          Delete statement
-        </button>
-      </form>
+          confirmText={`Delete "${st.file_name}" and its transactions? This cannot be undone.`}
+        />
+      </div>
     </div>
   );
 }

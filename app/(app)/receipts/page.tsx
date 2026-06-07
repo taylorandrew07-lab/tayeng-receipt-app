@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { MonthSelect } from "@/components/receipts/month-select";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteReceipt } from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
 import { currentMonthKey, formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
@@ -111,13 +113,22 @@ export default async function ReceiptsPage({
                       {STATUS_LABEL[r.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/receipts/${r.id}`}
-                      className="text-sm font-medium text-slate-900 underline"
-                    >
-                      Edit
-                    </Link>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-3">
+                      <Link
+                        href={`/receipts/${r.id}`}
+                        className="text-sm font-medium text-slate-900 underline"
+                      >
+                        Edit
+                      </Link>
+                      <DeleteButton
+                        action={deleteReceipt}
+                        id={r.id}
+                        label="Delete"
+                        className="text-sm text-slate-400 hover:text-red-700"
+                        confirmText={`Delete this receipt${r.vendor_name ? ` from ${r.vendor_name}` : ""}? This cannot be undone.`}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}
