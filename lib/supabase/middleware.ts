@@ -37,7 +37,8 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute =
     pathname.startsWith("/login") || pathname.startsWith("/auth");
-  const isPublic = isAuthRoute || pathname === "/";
+  // API routes enforce their own auth and return JSON — don't redirect them.
+  const isPublic = isAuthRoute || pathname === "/" || pathname.startsWith("/api");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

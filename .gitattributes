@@ -1,0 +1,2 @@
+# Normalize line endings — silences CRLF/LF warnings on Windows + OneDrive.
+* text=auto eol=lf
