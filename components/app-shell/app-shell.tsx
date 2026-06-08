@@ -23,12 +23,8 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Mobile top bar */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-        <span className="flex items-center gap-2 font-semibold">
-          <Image src="/logo.png" alt="" width={28} height={28} />
-          Tayeng Receipts
-        </span>
+      {/* Mobile top bar — menu button on the LEFT */}
+      <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
         <button
           onClick={() => setOpen((v) => !v)}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
@@ -36,6 +32,10 @@ export function AppShell({
         >
           ☰
         </button>
+        <span className="flex items-center gap-2 font-semibold">
+          <Image src="/logo.png" alt="" width={24} height={24} />
+          Tayeng Receipts
+        </span>
       </header>
 
       <div className="md:flex">
