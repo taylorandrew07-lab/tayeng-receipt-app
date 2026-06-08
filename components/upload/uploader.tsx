@@ -1,9 +1,11 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import { useUploadQueue, type QueueItem } from "@/components/upload/upload-queue";
 
-const ACCEPT = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+// Only formats we can both read AND embed in the PDF report.
+const ACCEPT = "image/jpeg,image/png,application/pdf";
 
 export function Uploader() {
   const { items, enqueueFiles, clearFinished, activeCount } = useUploadQueue();
@@ -95,12 +97,12 @@ export function Uploader() {
                 </span>
                 <StatusBadge item={it} />
                 {it.status === "done" && it.receiptId && (
-                  <a
+                  <Link
                     href={`/receipts/${it.receiptId}`}
                     className="text-sm font-medium text-slate-900 underline"
                   >
                     Open
-                  </a>
+                  </Link>
                 )}
               </li>
             ))}
@@ -108,12 +110,12 @@ export function Uploader() {
 
           {activeCount === 0 && (
             <div className="mt-4 flex items-center gap-3">
-              <a href="/receipts" className="text-sm font-medium text-slate-900 underline">
+              <Link href="/receipts" className="text-sm font-medium text-slate-900 underline">
                 View receipts
-              </a>
-              <a href="/review" className="text-sm font-medium text-amber-700 underline">
+              </Link>
+              <Link href="/review" className="text-sm font-medium text-amber-700 underline">
                 Go to Needs Review
-              </a>
+              </Link>
             </div>
           )}
         </div>

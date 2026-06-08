@@ -1,15 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { parseStatement } from "@/lib/extraction/parse-statement";
+import { getApprovedUser, MAX_PDF_BYTES } from "@/lib/auth/guard";
 
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, approved } = await getApprovedUser(supabase);
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!approved) {
+    return NextResponse.json({ error: "Account not approved" }, { status: 403 });
+  }
 
   let statementId: string;
   try {
@@ -37,6 +39,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not read file" }, { status: 500 });
   }
 
+  if (blob.size > MAX_PDF_BYTES) {
+    return NextResponse.json({ error: "File too large" }, { status: 413 });
+  }
   const mediaType = (statement.file_name ?? "").toLowerCase().endsWith(".pdf")
     ? "application/pdf"
     : "image/jpeg";

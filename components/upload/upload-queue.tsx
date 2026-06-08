@@ -4,8 +4,8 @@ import {
   createContext,
   useContext,
   useEffect,
-  useReducer,
   useRef,
+  useState,
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -52,13 +52,16 @@ function safeName(name: string): string {
 
 export function UploadQueueProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  // `items` (state) drives rendering; `itemsRef` mirrors it so the async
+  // processing loop always sees the latest queue without stale closures.
+  const [items, setItemsState] = useState<QueueItem[]>([]);
   const itemsRef = useRef<QueueItem[]>([]);
   const runningRef = useRef(false);
-  const [, bump] = useReducer((x: number) => x + 1, 0);
 
   function setItems(updater: (prev: QueueItem[]) => QueueItem[]) {
-    itemsRef.current = updater(itemsRef.current);
-    bump();
+    const next = updater(itemsRef.current);
+    itemsRef.current = next;
+    setItemsState(next);
   }
   function update(id: string, patch: Partial<QueueItem>) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
@@ -124,8 +127,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
     if (runningRef.current) return;
     runningRef.current = true;
     try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      for (;;) {
         const next = itemsRef.current.find((i) => i.status === "queued");
         if (!next) break;
         await processItem(next);
@@ -205,7 +207,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
   }, []);
 
   // Warn before closing/refreshing the tab while work is in flight.
-  const activeCount = itemsRef.current.filter((i) => ACTIVE.includes(i.status)).length;
+  const activeCount = items.filter((i) => ACTIVE.includes(i.status)).length;
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
       if (itemsRef.current.some((i) => ACTIVE.includes(i.status))) {
@@ -219,7 +221,7 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
 
   return (
     <UploadQueueContext.Provider
-      value={{ items: itemsRef.current, enqueueFiles, clearFinished, activeCount }}
+      value={{ items, enqueueFiles, clearFinished, activeCount }}
     >
       {children}
       <GlobalProgress />

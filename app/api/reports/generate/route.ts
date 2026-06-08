@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ReportDocument, type ReportRow } from "@/lib/reports/report-document";
 import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
+import { getApprovedUser } from "@/lib/auth/guard";
 import type { Receipt } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -13,10 +14,9 @@ type Row = Receipt & { categories: { name: string } | null };
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, approved } = await getApprovedUser(supabase);
   if (!user) return new Response("Unauthorized", { status: 401 });
+  if (!approved) return new Response("Account not approved", { status: 403 });
 
   const month =
     request.nextUrl.searchParams.get("month") ??

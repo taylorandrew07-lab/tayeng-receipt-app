@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useActionState } from "react";
 import { requestPasswordReset, type AuthState } from "@/lib/auth/actions";
 
@@ -53,9 +54,9 @@ export default function ForgotPasswordPage() {
         </div>
 
         <p className="mt-6 text-center text-sm">
-          <a href="/login" className="font-medium text-slate-600 hover:text-slate-900">
+          <Link href="/login" className="font-medium text-slate-600 hover:text-slate-900">
             ← Back to sign in
-          </a>
+          </Link>
         </p>
       </div>
     </main>

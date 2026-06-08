@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { login, signup, type AuthState } from "@/lib/auth/actions";
 
@@ -97,12 +98,12 @@ export default function LoginPage() {
 
             {mode === "signin" && (
               <div className="text-right">
-                <a
+                <Link
                   href="/forgot-password"
                   className="text-xs font-medium text-slate-500 hover:text-slate-900"
                 >
                   Forgot your password?
-                </a>
+                </Link>
               </div>
             )}
 

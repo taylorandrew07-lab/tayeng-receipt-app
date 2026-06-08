@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractDocument } from "@/lib/extraction/extract";
 import { classify, normalizeVendor } from "@/lib/classification/classify";
+import { getApprovedUser, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "@/lib/auth/guard";
 import type { Card, Category, LearningRule } from "@/lib/types";
 
 export const maxDuration = 60; // allow time for model extraction
@@ -13,11 +14,12 @@ export const maxDuration = 60; // allow time for model extraction
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, approved } = await getApprovedUser(supabase);
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  if (!approved) {
+    return NextResponse.json({ error: "Account not approved" }, { status: 403 });
   }
 
   let receiptId: string;
@@ -72,6 +74,25 @@ export async function POST(request: NextRequest) {
   }
 
   const mediaType = resolveMediaType(file.mime_type, file.file_name);
+
+  // Server-side type + size validation (client filters can be bypassed).
+  const ALLOWED = ["image/jpeg", "image/png", "application/pdf"];
+  if (!ALLOWED.includes(mediaType)) {
+    await supabase
+      .from("receipts")
+      .update({ status: "needs_review", notes: "Unsupported file type." })
+      .eq("id", receiptId);
+    return NextResponse.json({ error: "Unsupported file type" }, { status: 415 });
+  }
+  const limit = mediaType === "application/pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+  if (blob.size > limit) {
+    await supabase
+      .from("receipts")
+      .update({ status: "needs_review", notes: "File is too large to process." })
+      .eq("id", receiptId);
+    return NextResponse.json({ error: "File too large" }, { status: 413 });
+  }
+
   const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
   // Extract with Claude, then classify with the user's rules.
