@@ -48,6 +48,12 @@ export default async function StatementDetailPage({
             >
               Match receipts
             </Link>
+            <a
+              href={`/api/reports/statement?id=${st.id}`}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Reconciliation report
+            </a>
             <Link href="/statements" className="text-sm text-slate-600 underline">
               ← Back
             </Link>
