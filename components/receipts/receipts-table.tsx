@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deleteReceipts, findDuplicates } from "@/lib/receipts/actions";
+import { deleteReceipts, findDuplicates, setReceiptsSent } from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
@@ -78,6 +78,7 @@ export function ReceiptsTable({
       : "all") as KindFilter
   );
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [sentFilter, setSentFilter] = useState<"all" | "not" | "sent">("all");
   const [sortKey, setSortKey] = useState<SortKey>("upload");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -98,6 +99,8 @@ export function ReceiptsTable({
     if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
     if (kind !== "all") list = list.filter((r) => kindMatch(r, kind));
     if (duplicatesOnly) list = list.filter((r) => r.duplicate_of);
+    if (sentFilter === "not") list = list.filter((r) => !r.sent);
+    else if (sentFilter === "sent") list = list.filter((r) => r.sent);
     const dir = sortDir === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       const va = sortVal(a, sortKey);
@@ -105,7 +108,7 @@ export function ReceiptsTable({
       if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [rows, statusFilter, kind, duplicatesOnly, sortKey, sortDir]);
+  }, [rows, statusFilter, kind, duplicatesOnly, sentFilter, sortKey, sortDir]);
 
   const reimbursableTotal = visible
     .filter((r) => r.reimbursable)
@@ -152,6 +155,16 @@ export function ReceiptsTable({
       return;
     startTransition(async () => {
       await deleteReceipts(ids);
+      setPicked(new Set());
+      router.refresh();
+    });
+  }
+
+  function markSent(sent: boolean) {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      await setReceiptsSent(ids, sent);
       setPicked(new Set());
       router.refresh();
     });
@@ -223,6 +236,16 @@ export function ReceiptsTable({
           ))}
         </select>
 
+        <select
+          value={sentFilter}
+          onChange={(e) => setSentFilter(e.target.value as "all" | "not" | "sent")}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+        >
+          <option value="all">Sent &amp; not sent</option>
+          <option value="not">Not sent yet</option>
+          <option value="sent">Sent (archived)</option>
+        </select>
+
         <button
           type="button"
           onClick={runFindDuplicates}
@@ -246,16 +269,32 @@ export function ReceiptsTable({
 
       {/* Bulk bar */}
       {picked.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">
           <span>{picked.size} selected</span>
           <span className="font-semibold">Total {formatTTD(selectedTotal)}</span>
+          <button
+            type="button"
+            onClick={() => markSent(true)}
+            disabled={pending}
+            className="rounded-md bg-emerald-600 px-3 py-1 font-semibold hover:bg-emerald-700 disabled:opacity-60"
+          >
+            Mark as sent
+          </button>
+          <button
+            type="button"
+            onClick={() => markSent(false)}
+            disabled={pending}
+            className="rounded-md border border-slate-500 px-3 py-1 font-medium hover:bg-slate-800 disabled:opacity-60"
+          >
+            Mark not sent
+          </button>
           <button
             type="button"
             onClick={bulkDelete}
             disabled={pending}
             className="rounded-md bg-red-600 px-3 py-1 font-semibold hover:bg-red-700 disabled:opacity-60"
           >
-            {pending ? "Deleting…" : "Delete selected"}
+            {pending ? "Working…" : "Delete"}
           </button>
           <button type="button" onClick={() => setPicked(new Set())} className="text-slate-300 hover:text-white">
             Clear
@@ -290,7 +329,7 @@ export function ReceiptsTable({
             </thead>
             <tbody>
               {visible.map((r) => {
-                const archived = r.status === "confirmed";
+                const archived = r.status === "confirmed" || r.sent;
                 const fileName = r.receipt_files?.[0]?.file_name;
                 return (
                   <tr
@@ -329,9 +368,16 @@ export function ReceiptsTable({
                       {r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—"}
                     </td>
                     <td className="px-3 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}>
-                        {STATUS_LABEL[r.status]}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}>
+                          {STATUS_LABEL[r.status]}
+                        </span>
+                        {r.sent && (
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                            ✓ Sent
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link href={`/receipts/${r.id}`} className="text-sm font-medium text-slate-900 underline">

@@ -220,6 +220,21 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
   return { flagged };
 }
 
+/**
+ * Marks receipts as sent (archived) or not. "Sent" means they've been
+ * submitted/handled, so they show as archived and can be filtered out.
+ */
+export async function setReceiptsSent(ids: string[], sent: boolean): Promise<void> {
+  "use server";
+  if (!ids || ids.length === 0) return;
+  const supabase = await createClient();
+  await supabase
+    .from("receipts")
+    .update({ sent, sent_at: sent ? new Date().toISOString() : null })
+    .in("id", ids);
+  revalidatePath("/receipts");
+}
+
 export async function deleteReceipt(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (!id) return;

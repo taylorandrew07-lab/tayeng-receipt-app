@@ -94,6 +94,8 @@ export type Receipt = {
   raw_extraction: ExtractionResult | null;
   notes: string | null;
   duplicate_of: string | null;
+  sent: boolean;
+  sent_at: string | null;
   created_at: string;
   updated_at: string;
 };
