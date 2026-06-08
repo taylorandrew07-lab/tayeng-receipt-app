@@ -42,9 +42,12 @@ export async function POST(request: NextRequest) {
   if (blob.size > MAX_PDF_BYTES) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
   }
-  const mediaType = (statement.file_name ?? "").toLowerCase().endsWith(".pdf")
+  const name = (statement.file_name ?? "").toLowerCase();
+  const mediaType = name.endsWith(".pdf")
     ? "application/pdf"
-    : "image/jpeg";
+    : name.endsWith(".png")
+      ? "image/png"
+      : "image/jpeg";
   const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
   let parsed;

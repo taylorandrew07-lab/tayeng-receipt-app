@@ -7,10 +7,37 @@ import { useUploadQueue, type QueueItem } from "@/components/upload/upload-queue
 // Only formats we can both read AND embed in the PDF report.
 const ACCEPT = "image/jpeg,image/png,application/pdf";
 
+function isSupported(file: File): boolean {
+  const t = file.type.toLowerCase();
+  const n = file.name.toLowerCase();
+  return (
+    t === "image/jpeg" ||
+    t === "image/png" ||
+    t === "application/pdf" ||
+    /\.(jpe?g|png|pdf)$/.test(n)
+  );
+}
+
 export function Uploader() {
   const { items, enqueueFiles, clearFinished, activeCount } = useUploadQueue();
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
+
+  // Client-side guard: only enqueue supported types, and tell the user about
+  // any that were skipped (e.g. iPhone HEIC, WebP) so nothing fails silently.
+  function add(list: FileList | null) {
+    if (!list) return;
+    const files = Array.from(list);
+    const ok = files.filter(isSupported);
+    const skipped = files.length - ok.length;
+    if (skipped > 0) {
+      window.alert(
+        `${skipped} file${skipped === 1 ? "" : "s"} skipped — only JPG, PNG, and PDF are supported. ` +
+          `(On iPhone, set Camera → Formats → "Most Compatible" to take JPGs.)`
+      );
+    }
+    if (ok.length > 0) enqueueFiles(ok);
+  }
 
   const finishedCount = items.filter(
     (i) => i.status === "done" || i.status === "error"
@@ -42,25 +69,24 @@ export function Uploader() {
             multiple
             className="hidden"
             onChange={(e) => {
-              enqueueFiles(e.target.files ?? []);
+              add(e.target.files);
               e.target.value = "";
             }}
           />
           <input
             ref={cameraInput}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png"
             capture="environment"
             className="hidden"
             onChange={(e) => {
-              enqueueFiles(e.target.files ?? []);
+              add(e.target.files);
               e.target.value = "";
             }}
           />
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          Receipts, invoices, and statement PDFs. JPG, PNG, WebP, or PDF. You can
-          select many at once.
+          Receipts and invoices as JPG, PNG, or PDF. You can select many at once.
         </p>
         {activeCount > 0 && (
           <p className="mt-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">

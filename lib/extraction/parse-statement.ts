@@ -58,7 +58,7 @@ export async function parseStatement({
           type: "image",
           source: {
             type: "base64",
-            media_type: "image/jpeg",
+            media_type: mediaType === "image/png" ? "image/png" : "image/jpeg",
             data: base64,
           },
         };

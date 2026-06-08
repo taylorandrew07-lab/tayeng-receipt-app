@@ -10,6 +10,10 @@ import type { Receipt } from "@/lib/types";
 
 export const maxDuration = 60;
 
+// Caps so a single huge / many-page receipt can't blow the report's memory/time.
+const MAX_EMBED_BYTES = 25 * 1024 * 1024; // 25 MB per receipt file
+const MAX_PAGES_PER_RECEIPT = 20;
+
 type Row = Receipt & { categories: { name: string } | null };
 
 export async function GET(request: NextRequest) {
@@ -149,6 +153,13 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      // Skip files too large to safely load into the serverless function.
+      if (blob.size > MAX_EMBED_BYTES) {
+        const page = merged.addPage(A4);
+        drawLabel(page, `${label} — file too large to include (open it in the app)`);
+        continue;
+      }
+
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const name = (file.file_name ?? "").toLowerCase();
       const mime = (file.mime_type ?? "").toLowerCase();
@@ -158,7 +169,9 @@ export async function GET(request: NextRequest) {
 
       if (isPdf) {
         const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        const pages = await merged.copyPages(src, src.getPageIndices());
+        // Cap pages per receipt so one huge PDF can't blow up the report.
+        const indices = src.getPageIndices().slice(0, MAX_PAGES_PER_RECEIPT);
+        const pages = await merged.copyPages(src, indices);
         pages.forEach((p, idx) => {
           merged.addPage(p);
           if (idx === 0) drawLabel(p, label);
