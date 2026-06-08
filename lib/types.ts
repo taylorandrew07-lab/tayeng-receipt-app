@@ -98,6 +98,8 @@ export type Receipt = {
   not_duplicate: boolean;
   sent: boolean;
   sent_at: string | null;
+  paid: boolean;
+  paid_at: string | null;
   created_at: string;
   updated_at: string;
 };

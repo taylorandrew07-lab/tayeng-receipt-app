@@ -245,6 +245,22 @@ export async function setReceiptsSent(ids: string[], sent: boolean): Promise<voi
  * Marks a receipt as NOT a duplicate: clears the flag and remembers the
  * decision so the auto-detector never re-flags it.
  */
+/**
+ * Marks receipts paid / unpaid. Paid reimbursables drop off the dashboard's
+ * outstanding total (the money has been reimbursed).
+ */
+export async function setReceiptsPaid(ids: string[], paid: boolean): Promise<void> {
+  "use server";
+  if (!ids || ids.length === 0) return;
+  const supabase = await createClient();
+  await supabase
+    .from("receipts")
+    .update({ paid, paid_at: paid ? new Date().toISOString() : null })
+    .in("id", ids);
+  revalidatePath("/receipts");
+  revalidatePath("/dashboard");
+}
+
 export async function dismissDuplicate(formData: FormData): Promise<void> {
   "use server";
   const id = String(formData.get("id") ?? "");

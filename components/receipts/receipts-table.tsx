@@ -7,6 +7,7 @@ import {
   deleteReceipts,
   findDuplicates,
   setReceiptsSent,
+  setReceiptsPaid,
   dismissDuplicate,
 } from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
@@ -69,11 +70,13 @@ export function ReceiptsTable({
   months,
   selected,
   initialKind = "all",
+  initialPaid = "all",
 }: {
   rows: ReceiptRow[];
   months: string[];
   selected: string;
   initialKind?: string;
+  initialPaid?: string;
 }) {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -84,6 +87,12 @@ export function ReceiptsTable({
   );
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [sentFilter, setSentFilter] = useState<"all" | "not" | "sent">("all");
+  const [paidFilter, setPaidFilter] = useState<"all" | "unpaid" | "paid">(
+    (["unpaid", "paid"].includes(initialPaid) ? initialPaid : "all") as
+      | "all"
+      | "unpaid"
+      | "paid"
+  );
   const [sortKey, setSortKey] = useState<SortKey>("upload");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -106,6 +115,8 @@ export function ReceiptsTable({
     if (duplicatesOnly) list = list.filter((r) => r.duplicate_of);
     if (sentFilter === "not") list = list.filter((r) => !r.sent);
     else if (sentFilter === "sent") list = list.filter((r) => r.sent);
+    if (paidFilter === "unpaid") list = list.filter((r) => !r.paid);
+    else if (paidFilter === "paid") list = list.filter((r) => r.paid);
     const dir = sortDir === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       const va = sortVal(a, sortKey);
@@ -113,7 +124,7 @@ export function ReceiptsTable({
       if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [rows, statusFilter, kind, duplicatesOnly, sentFilter, sortKey, sortDir]);
+  }, [rows, statusFilter, kind, duplicatesOnly, sentFilter, paidFilter, sortKey, sortDir]);
 
   const reimbursableTotal = visible
     .filter((r) => r.reimbursable)
@@ -171,6 +182,16 @@ export function ReceiptsTable({
     if (ids.length === 0) return;
     startTransition(async () => {
       await setReceiptsSent(ids, sent);
+      setPicked(new Set());
+      router.refresh();
+    });
+  }
+
+  function markPaid(paid: boolean) {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      await setReceiptsPaid(ids, paid);
       setPicked(new Set());
       router.refresh();
     });
@@ -252,6 +273,16 @@ export function ReceiptsTable({
           <option value="sent">Sent (archived)</option>
         </select>
 
+        <select
+          value={paidFilter}
+          onChange={(e) => setPaidFilter(e.target.value as "all" | "unpaid" | "paid")}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+        >
+          <option value="all">Paid &amp; unpaid</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="paid">Paid</option>
+        </select>
+
         <button
           type="button"
           onClick={runFindDuplicates}
@@ -280,11 +311,27 @@ export function ReceiptsTable({
           <span className="font-semibold">Total {formatTTD(selectedTotal)}</span>
           <button
             type="button"
+            onClick={() => markPaid(true)}
+            disabled={pending}
+            className="rounded-md bg-green-600 px-3 py-1 font-semibold hover:bg-green-700 disabled:opacity-60"
+          >
+            Mark as paid
+          </button>
+          <button
+            type="button"
+            onClick={() => markPaid(false)}
+            disabled={pending}
+            className="rounded-md border border-slate-500 px-3 py-1 font-medium hover:bg-slate-800 disabled:opacity-60"
+          >
+            Unpaid
+          </button>
+          <button
+            type="button"
             onClick={() => markSent(true)}
             disabled={pending}
             className="rounded-md bg-emerald-600 px-3 py-1 font-semibold hover:bg-emerald-700 disabled:opacity-60"
           >
-            Mark as sent
+            Mark sent
           </button>
           <button
             type="button"
@@ -292,7 +339,7 @@ export function ReceiptsTable({
             disabled={pending}
             className="rounded-md border border-slate-500 px-3 py-1 font-medium hover:bg-slate-800 disabled:opacity-60"
           >
-            Mark not sent
+            Not sent
           </button>
           <button
             type="button"
@@ -335,7 +382,7 @@ export function ReceiptsTable({
             </thead>
             <tbody>
               {visible.map((r) => {
-                const archived = r.status === "confirmed" || r.sent;
+                const archived = r.status === "confirmed" || r.sent || r.paid;
                 const fileName = r.receipt_files?.[0]?.file_name;
                 return (
                   <tr
@@ -378,6 +425,11 @@ export function ReceiptsTable({
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}>
                           {STATUS_LABEL[r.status]}
                         </span>
+                        {r.paid && (
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                            💰 Paid
+                          </span>
+                        )}
                         {r.sent && (
                           <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
                             ✓ Sent

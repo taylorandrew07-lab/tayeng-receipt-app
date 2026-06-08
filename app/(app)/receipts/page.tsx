@@ -7,10 +7,10 @@ import { currentMonthKey } from "@/lib/month";
 export default async function ReceiptsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; kind?: string }>;
+  searchParams: Promise<{ month?: string; kind?: string; paid?: string }>;
 }) {
   const supabase = await createClient();
-  const { month, kind } = await searchParams;
+  const { month, kind, paid } = await searchParams;
 
   // Months are based on UPLOAD date (month_key is set to the upload month).
   const { data: monthRows } = await supabase
@@ -58,6 +58,7 @@ export default async function ReceiptsPage({
         months={months}
         selected={selected}
         initialKind={kind ?? "all"}
+        initialPaid={paid ?? "all"}
       />
     </div>
   );
