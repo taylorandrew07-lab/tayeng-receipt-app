@@ -8,13 +8,12 @@ import {
 } from "@/lib/reports/report-document";
 import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
+import { pdfFirstPagePng } from "@/lib/reports/pdf-to-image";
 import type { Receipt } from "@/lib/types";
 
 export const maxDuration = 60;
 
 type Row = Receipt & { categories: { name: string } | null };
-
-const EMBEDDABLE = ["image/jpeg", "image/png"];
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -80,41 +79,63 @@ export async function GET(request: NextRequest) {
     notes: r.notes ?? "",
   }));
 
-  // Fetch primary files and embed image originals (PNG/JPEG) as data URLs.
-  const images: ReportImage[] = await Promise.all(
-    rowsData.map(async (r, i): Promise<ReportImage> => {
-      const base: ReportImage = {
-        n: i + 1,
-        vendor: r.vendor_name ?? "Unknown",
-        ttd: r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—",
-        dataUrl: null,
-      };
-      const { data: file } = await supabase
-        .from("receipt_files")
-        .select("storage_path, mime_type, file_name")
-        .eq("receipt_id", r.id)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (!file) return base;
+  // Fetch each receipt's primary file and turn it into an embeddable image:
+  // JPG/PNG are embedded directly; PDFs are rendered (first page) to PNG.
+  // Done sequentially to keep memory/time predictable on the serverless runtime.
+  const images: ReportImage[] = [];
+  for (let i = 0; i < rowsData.length; i++) {
+    const r = rowsData[i];
+    const base: ReportImage = {
+      n: i + 1,
+      vendor: r.vendor_name ?? "Unknown",
+      ttd: r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—",
+      dataUrl: null,
+    };
 
-      const mime = (file.mime_type ?? "").toLowerCase();
-      const isJpgPng =
-        EMBEDDABLE.includes(mime) ||
-        /\.(jpe?g|png)$/i.test(file.file_name ?? "");
-      if (!isJpgPng) return base;
+    const { data: file } = await supabase
+      .from("receipt_files")
+      .select("storage_path, mime_type, file_name")
+      .eq("receipt_id", r.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (!file) {
+      images.push(base);
+      continue;
+    }
 
-      const { data: blob } = await supabase.storage
-        .from("documents")
-        .download(file.storage_path);
-      if (!blob) return base;
-      const b64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
-      const type = mime.includes("png") || /\.png$/i.test(file.file_name ?? "")
-        ? "image/png"
-        : "image/jpeg";
-      return { ...base, dataUrl: `data:${type};base64,${b64}` };
-    })
-  );
+    const { data: blob } = await supabase.storage
+      .from("documents")
+      .download(file.storage_path);
+    if (!blob) {
+      images.push(base);
+      continue;
+    }
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const name = (file.file_name ?? "").toLowerCase();
+    const mime = (file.mime_type ?? "").toLowerCase();
+    const isPng = mime.includes("png") || name.endsWith(".png");
+    const isJpg = mime.includes("jpeg") || /\.jpe?g$/.test(name);
+    const isPdf = mime.includes("pdf") || name.endsWith(".pdf");
+
+    if (isJpg || isPng) {
+      const b64 = Buffer.from(bytes).toString("base64");
+      images.push({
+        ...base,
+        dataUrl: `data:${isPng ? "image/png" : "image/jpeg"};base64,${b64}`,
+      });
+    } else if (isPdf) {
+      const png = await pdfFirstPagePng(bytes);
+      images.push(
+        png
+          ? { ...base, dataUrl: `data:image/png;base64,${png.toString("base64")}` }
+          : base
+      );
+    } else {
+      images.push(base);
+    }
+  }
 
   const pdf = await renderToBuffer(
     ReportDocument({
