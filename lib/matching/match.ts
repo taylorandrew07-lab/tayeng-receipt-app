@@ -85,9 +85,12 @@ export function scorePair(
       : 0.3; // unknown date -> weak neutral
   const vScore = vendorScore(receipt.vendor_name, txn.description);
 
+  // A matching last 4 is a bonus. A mismatch is only a SMALL penalty (not a
+  // disqualifier) so a receipt mis-labelled as personal — or with a different/
+  // missing card on file — can still surface against the statement for review.
   let card = 0;
   if (txn.card_last4 && receipt.card_last4) {
-    card = txn.card_last4 === receipt.card_last4 ? 0.1 : -0.4;
+    card = txn.card_last4 === receipt.card_last4 ? 0.1 : -0.15;
   }
 
   const conf = aScore * 0.5 + dScore * 0.2 + vScore * 0.2 + card;

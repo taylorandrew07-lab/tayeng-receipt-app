@@ -138,6 +138,14 @@ export default async function MatchingPage({
                           ? formatTTD(Number(m.receipts.ttd_amount))
                           : "—"}
                       </p>
+                      {m.receipt_id && (
+                        <Link
+                          href={`/receipts/${m.receipt_id}`}
+                          className="mt-1 inline-block text-xs font-medium text-slate-900 underline"
+                        >
+                          Open receipt ↗
+                        </Link>
+                      )}
                     </SideBox>
                   </div>
                   <div className="mt-3 flex items-center gap-3">
@@ -189,12 +197,18 @@ export default async function MatchingPage({
                   key={m.id}
                   className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
                 >
-                  <span className="text-slate-900">
+                  <Link
+                    href={m.receipt_id ? `/receipts/${m.receipt_id}` : "#"}
+                    className="min-w-0 flex-1 text-slate-900 hover:underline"
+                    title="Open the receipt to verify this match"
+                  >
                     {m.receipts?.vendor_name ?? "Receipt"} ↔ {t?.description ?? "Transaction"}
-                  </span>
+                  </Link>
                   <div className="flex items-center gap-3">
-                    <span className="text-slate-500">
-                      {t?.amount != null ? formatTTD(Number(t.amount)) : "—"}
+                    <span className="whitespace-nowrap text-slate-500">
+                      R {m.receipts?.ttd_amount != null ? formatTTD(Number(m.receipts.ttd_amount)) : "—"}
+                      {" · "}
+                      S {t?.amount != null ? formatTTD(Number(t.amount)) : "—"}
                     </span>
                     <form action={rejectMatch}>
                       <input type="hidden" name="id" value={m.id} />
