@@ -29,6 +29,7 @@ export type Profile = {
   full_name: string | null;
   company_name: string | null;
   role: "user" | "admin" | "super_admin";
+  approved: boolean;
   created_at: string;
   updated_at: string;
 };

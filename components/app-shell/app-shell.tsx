@@ -10,9 +10,13 @@ import { signout } from "@/lib/auth/actions";
 export function AppShell({
   children,
   userLabel,
+  isAdmin = false,
+  pendingCount = 0,
 }: {
   children: React.ReactNode;
   userLabel: string;
+  isAdmin?: boolean;
+  pendingCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -74,6 +78,31 @@ export function AppShell({
                 })}
               </div>
             ))}
+
+            {isAdmin && (
+              <div className="mb-4">
+                <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Admin
+                </p>
+                <Link
+                  href="/admin"
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    pathname.startsWith("/admin")
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <span aria-hidden>👤</span>
+                  Users
+                  {pendingCount > 0 && (
+                    <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
+                      {pendingCount}
+                    </span>
+                  )}
+                </Link>
+              </div>
+            )}
           </nav>
 
           <div className="border-t border-slate-200 p-3">
