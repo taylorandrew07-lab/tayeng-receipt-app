@@ -37,11 +37,16 @@ export async function signup(
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("full_name") ?? "").trim();
 
+  const confirmPassword = String(formData.get("confirm_password") ?? "");
+
   if (!email || !password) {
     return { error: "Please enter your email and password." };
   }
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Passwords do not match." };
   }
 
   const supabase = await createClient();
@@ -77,4 +82,89 @@ export async function signout() {
   await supabase.auth.signOut();
   revalidatePath("/", "layout");
   redirect("/login");
+}
+
+/** Sends a password-reset email with a link back to /reset-password. */
+export async function requestPasswordReset(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { error: "Please enter your email." };
+
+  const supabase = await createClient();
+  const origin = (await headers()).get("origin") ?? "";
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=/reset-password`,
+  });
+  if (error) return { error: error.message };
+
+  return {
+    message:
+      "If an account exists for that email, a reset link is on its way. Check your inbox (and spam).",
+  };
+}
+
+/** Sets a new password during the reset flow (user arrives via the email link). */
+export async function updatePassword(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm_password") ?? "");
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+  if (password !== confirm) {
+    return { error: "Passwords do not match." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "Your reset link has expired. Please request a new one." };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
+
+/** Changes the password from Settings: verifies the current one, then updates. */
+export async function changePassword(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const current = String(formData.get("current_password") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm_password") ?? "");
+
+  if (password.length < 8) {
+    return { error: "New password must be at least 8 characters." };
+  }
+  if (password !== confirm) {
+    return { error: "New passwords do not match." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) return { error: "Not signed in." };
+
+  // Verify the current password by re-authenticating.
+  const { error: verifyError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: current,
+  });
+  if (verifyError) return { error: "Your current password is incorrect." };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  return { message: "Password updated successfully." };
 }

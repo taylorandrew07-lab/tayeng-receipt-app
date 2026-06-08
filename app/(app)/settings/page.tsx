@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { SettingsForm } from "@/components/settings/settings-form";
+import { ChangePasswordForm } from "@/components/settings/change-password-form";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -30,6 +31,10 @@ export default async function SettingsPage() {
           }
         }
       />
+
+      <div className="mt-6">
+        <ChangePasswordForm />
+      </div>
     </div>
   );
 }

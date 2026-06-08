@@ -84,6 +84,27 @@ export default function LoginPage() {
               }
               required
             />
+            {mode === "signup" && (
+              <Field
+                label="Confirm password"
+                name="confirm_password"
+                type="password"
+                placeholder="••••••••"
+                autoComplete="new-password"
+                required
+              />
+            )}
+
+            {mode === "signin" && (
+              <div className="text-right">
+                <a
+                  href="/forgot-password"
+                  className="text-xs font-medium text-slate-500 hover:text-slate-900"
+                >
+                  Forgot your password?
+                </a>
+              </div>
+            )}
 
             {state?.error && (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
