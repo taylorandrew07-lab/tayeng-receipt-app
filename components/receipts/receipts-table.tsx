@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deleteReceipts } from "@/lib/receipts/actions";
+import { deleteReceipts, findDuplicates } from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
@@ -14,20 +14,72 @@ export type ReceiptRow = Receipt & {
 };
 
 type StatusFilter = "all" | "needs_review" | "confirmed";
-type SortBy = "receipt_date" | "upload";
+type KindFilter = "all" | "reimbursable" | "company" | "cash" | "personal";
+type SortKey = "upload" | "receipt_date" | "vendor" | "category" | "payment" | "ttd" | "status";
+
+const KINDS: { value: KindFilter; label: string }[] = [
+  { value: "all", label: "All types" },
+  { value: "reimbursable", label: "Reimbursable" },
+  { value: "company", label: "Company card" },
+  { value: "cash", label: "Cash" },
+  { value: "personal", label: "Personal card" },
+];
+
+function kindMatch(r: ReceiptRow, k: KindFilter): boolean {
+  switch (k) {
+    case "reimbursable":
+      return r.reimbursable === true;
+    case "company":
+      return r.payment_method === "company_card";
+    case "cash":
+      return r.payment_method === "cash";
+    case "personal":
+      return r.payment_method === "personal_card";
+    default:
+      return true;
+  }
+}
+
+function sortVal(r: ReceiptRow, key: SortKey): string | number {
+  switch (key) {
+    case "upload":
+      return r.created_at;
+    case "receipt_date":
+      return r.receipt_date ?? "";
+    case "vendor":
+      return (r.vendor_name ?? "").toLowerCase();
+    case "category":
+      return (r.categories?.name ?? "").toLowerCase();
+    case "payment":
+      return PAYMENT_LABEL[r.payment_method];
+    case "ttd":
+      return Number(r.ttd_amount ?? 0);
+    case "status":
+      return r.status;
+  }
+}
 
 export function ReceiptsTable({
   rows,
   months,
   selected,
+  initialKind = "all",
 }: {
   rows: ReceiptRow[];
   months: string[];
-  selected: string; // 'all' or 'YYYY-MM'
+  selected: string;
+  initialKind?: string;
 }) {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortBy, setSortBy] = useState<SortBy>("upload");
+  const [kind, setKind] = useState<KindFilter>(
+    (["reimbursable", "company", "cash", "personal"].includes(initialKind)
+      ? initialKind
+      : "all") as KindFilter
+  );
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("upload");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
 
@@ -36,6 +88,7 @@ export function ReceiptsTable({
       all: rows.length,
       needs_review: rows.filter((r) => r.status === "needs_review").length,
       confirmed: rows.filter((r) => r.status === "confirmed").length,
+      duplicates: rows.filter((r) => r.duplicate_of).length,
     }),
     [rows]
   );
@@ -43,12 +96,16 @@ export function ReceiptsTable({
   const visible = useMemo(() => {
     let list = rows;
     if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
-    const sorted = [...list].sort((a, b) => {
-      if (sortBy === "upload") return b.created_at.localeCompare(a.created_at);
-      return (b.receipt_date ?? "").localeCompare(a.receipt_date ?? "");
+    if (kind !== "all") list = list.filter((r) => kindMatch(r, kind));
+    if (duplicatesOnly) list = list.filter((r) => r.duplicate_of);
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const va = sortVal(a, sortKey);
+      const vb = sortVal(b, sortKey);
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
     });
-    return sorted;
-  }, [rows, statusFilter, sortBy]);
+  }, [rows, statusFilter, kind, duplicatesOnly, sortKey, sortDir]);
 
   const reimbursableTotal = visible
     .filter((r) => r.reimbursable)
@@ -59,8 +116,7 @@ export function ReceiptsTable({
   function toggle(id: string) {
     setPicked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   }
@@ -73,6 +129,17 @@ export function ReceiptsTable({
       }
       return new Set([...prev, ...visible.map((r) => r.id)]);
     });
+  }
+  function setSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir(key === "ttd" || key.includes("date") || key === "upload" ? "desc" : "asc");
+    }
+  }
+  function arrow(key: SortKey) {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " ▲" : " ▼";
   }
 
   function bulkDelete() {
@@ -87,10 +154,25 @@ export function ReceiptsTable({
     });
   }
 
+  function runFindDuplicates() {
+    startTransition(async () => {
+      const res = await findDuplicates();
+      router.refresh();
+      setDuplicatesOnly(res.flagged > 0 || counts.duplicates > 0);
+      window.alert(
+        res.flagged > 0
+          ? `Flagged ${res.flagged} possible duplicate${res.flagged === 1 ? "" : "s"}. They're shown now and marked "Duplicate".`
+          : "No new duplicates found."
+      );
+    });
+  }
+
+  const th = "cursor-pointer select-none px-3 py-3 font-semibold hover:text-slate-700";
+
   return (
     <div>
-      {/* Controls */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      {/* Row 1: month + status */}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <select
           value={selected}
           onChange={(e) => router.push(`/receipts?month=${e.target.value}`)}
@@ -119,21 +201,47 @@ export function ReceiptsTable({
           ))}
         </div>
 
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
-        >
-          <option value="upload">Sort: upload order</option>
-          <option value="receipt_date">Sort: receipt date</option>
-        </select>
-
         <span className="ml-auto text-sm text-slate-500">
           Reimbursable {formatTTD(reimbursableTotal)}
         </span>
       </div>
 
-      {/* Bulk action bar */}
+      {/* Row 2: type + duplicates */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as KindFilter)}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+        >
+          {KINDS.map((k) => (
+            <option key={k.value} value={k.value}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          onClick={runFindDuplicates}
+          disabled={pending}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+        >
+          {pending ? "Checking…" : "🔍 Find duplicates"}
+        </button>
+
+        {counts.duplicates > 0 && (
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={duplicatesOnly}
+              onChange={(e) => setDuplicatesOnly(e.target.checked)}
+            />
+            Show duplicates only ({counts.duplicates})
+          </label>
+        )}
+      </div>
+
+      {/* Bulk bar */}
       {picked.size > 0 && (
         <div className="mb-3 flex items-center gap-3 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">
           <span>{picked.size} selected</span>
@@ -145,11 +253,7 @@ export function ReceiptsTable({
           >
             {pending ? "Deleting…" : "Delete selected"}
           </button>
-          <button
-            type="button"
-            onClick={() => setPicked(new Set())}
-            className="text-slate-300 hover:text-white"
-          >
+          <button type="button" onClick={() => setPicked(new Set())} className="text-slate-300 hover:text-white">
             Clear
           </button>
         </div>
@@ -171,12 +275,12 @@ export function ReceiptsTable({
                 <th className="px-3 py-3">
                   <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
                 </th>
-                <th className="px-3 py-3 font-semibold">Date</th>
-                <th className="px-3 py-3 font-semibold">Vendor / File</th>
-                <th className="px-3 py-3 font-semibold">Category</th>
-                <th className="px-3 py-3 font-semibold">Payment</th>
-                <th className="px-3 py-3 text-right font-semibold">TTD</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className={th} onClick={() => setSort("receipt_date")}>Date{arrow("receipt_date")}</th>
+                <th className={th} onClick={() => setSort("vendor")}>Vendor / File{arrow("vendor")}</th>
+                <th className={th} onClick={() => setSort("category")}>Category{arrow("category")}</th>
+                <th className={th} onClick={() => setSort("payment")}>Payment{arrow("payment")}</th>
+                <th className={`${th} text-right`} onClick={() => setSort("ttd")}>TTD{arrow("ttd")}</th>
+                <th className={th} onClick={() => setSort("status")}>Status{arrow("status")}</th>
                 <th className="px-3 py-3"></th>
               </tr>
             </thead>
@@ -192,11 +296,7 @@ export function ReceiptsTable({
                     } ${picked.has(r.id) ? "bg-blue-50" : ""}`}
                   >
                     <td className="px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={picked.has(r.id)}
-                        onChange={() => toggle(r.id)}
-                      />
+                      <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
                     </td>
                     <td className={`whitespace-nowrap px-3 py-3 ${archived ? "text-slate-400" : "text-slate-600"}`}>
                       {r.receipt_date ?? "—"}
@@ -211,7 +311,7 @@ export function ReceiptsTable({
                         )}
                       </div>
                       {fileName && (
-                        <div className="text-xs text-slate-400 truncate max-w-[220px]">{fileName}</div>
+                        <div className="max-w-[220px] truncate text-xs text-slate-400">{fileName}</div>
                       )}
                     </td>
                     <td className={`px-3 py-3 ${archived ? "text-slate-400" : "text-slate-600"}`}>
@@ -230,10 +330,7 @@ export function ReceiptsTable({
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right">
-                      <Link
-                        href={`/receipts/${r.id}`}
-                        className="text-sm font-medium text-slate-900 underline"
-                      >
+                      <Link href={`/receipts/${r.id}`} className="text-sm font-medium text-slate-900 underline">
                         Open
                       </Link>
                     </td>

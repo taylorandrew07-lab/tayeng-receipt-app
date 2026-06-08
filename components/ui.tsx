@@ -25,11 +25,13 @@ export function StatCard({
   value,
   hint,
   tone = "default",
+  href,
 }: {
   label: string;
   value: string;
   hint?: string;
   tone?: "default" | "good" | "warn";
+  href?: string;
 }) {
   const toneClass =
     tone === "good"
@@ -37,11 +39,26 @@ export function StatCard({
       : tone === "warn"
         ? "text-amber-600"
         : "text-slate-900";
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  const inner = (
+    <>
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+    </>
+  );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      {inner}
     </div>
   );
 }

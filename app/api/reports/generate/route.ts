@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
   const month =
     request.nextUrl.searchParams.get("month") ??
     new Date().toISOString().slice(0, 7);
+  const type = request.nextUrl.searchParams.get("type") ?? "all";
 
   const [{ data: profile }, { data: receipts }] = await Promise.all([
     supabase.from("profiles").select("full_name, company_name").eq("id", user.id).single(),
@@ -33,10 +34,23 @@ export async function GET(request: NextRequest) {
       .from("receipts")
       .select("*, categories(name)")
       .eq("month_key", month)
+      .is("duplicate_of", null) // never include flagged duplicates in a report
       .order("receipt_date", { ascending: true, nullsFirst: true }),
   ]);
 
-  const rowsData = (receipts ?? []) as Row[];
+  const allRows = (receipts ?? []) as Row[];
+  const rowsData =
+    type === "reimbursable"
+      ? allRows.filter((r) => r.reimbursable === true)
+      : type === "company"
+        ? allRows.filter((r) => r.payment_method === "company_card")
+        : allRows;
+  const reportTitle =
+    type === "reimbursable"
+      ? "Reimbursable Expense Report"
+      : type === "company"
+        ? "Company Card Report"
+        : "Expense Report";
   const ttd = (r: Row) => Number(r.ttd_amount ?? 0);
 
   const totals = {
@@ -104,6 +118,7 @@ export async function GET(request: NextRequest) {
 
   const pdf = await renderToBuffer(
     ReportDocument({
+      title: reportTitle,
       company: profile?.company_name ?? "",
       userName: profile?.full_name ?? user.email ?? "",
       period: formatMonthKey(month),

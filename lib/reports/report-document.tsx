@@ -38,6 +38,7 @@ export type ReportTotalsView = {
 };
 
 export type ReportData = {
+  title: string;
   company: string;
   userName: string;
   period: string;
@@ -118,7 +119,7 @@ export function ReportDocument(data: ReportData) {
     <Document>
       {/* Cover / summary */}
       <Page size="A4" style={s.page}>
-        <Text style={s.h1}>Expense Report</Text>
+        <Text style={s.h1}>{data.title}</Text>
         <Text style={s.sub}>
           {data.company ? `${data.company} · ` : ""}
           {data.userName}

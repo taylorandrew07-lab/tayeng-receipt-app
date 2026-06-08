@@ -141,6 +141,86 @@ export async function deleteReceipts(ids: string[]): Promise<void> {
   revalidatePath("/review");
 }
 
+/**
+ * Re-checks ALL receipts for duplicates and flags later copies. Two receipts
+ * are considered the same if they share a file name, OR a vendor + TTD amount,
+ * OR an original amount + card last 4. The earliest upload is kept as the
+ * original; later ones are flagged (duplicate_of) and sent to Needs Review.
+ * Returns how many were newly flagged.
+ */
+export async function findDuplicates(): Promise<{ flagged: number }> {
+  "use server";
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { flagged: 0 };
+
+  const { data } = await supabase
+    .from("receipts")
+    .select(
+      "id, created_at, vendor_name, ttd_amount, amount, card_last4, duplicate_of, receipt_files(file_name)"
+    )
+    .order("created_at", { ascending: true });
+
+  const rows = (data ?? []) as {
+    id: string;
+    created_at: string;
+    vendor_name: string | null;
+    ttd_amount: number | null;
+    amount: number | null;
+    card_last4: string | null;
+    duplicate_of: string | null;
+    receipt_files: { file_name: string }[];
+  }[];
+
+  // Group ids by each duplicate key (rows are in upload order).
+  const groups = new Map<string, string[]>();
+  const add = (key: string, id: string) => {
+    if (!key) return;
+    const arr = groups.get(key) ?? [];
+    arr.push(id);
+    groups.set(key, arr);
+  };
+  for (const r of rows) {
+    const nv = normalizeVendor(r.vendor_name);
+    const ttd = r.ttd_amount != null ? Math.round(Number(r.ttd_amount) * 100) : null;
+    const amt = r.amount != null ? Math.round(Number(r.amount) * 100) : null;
+    const fn = (r.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
+    if (fn) add(`f:${fn}`, r.id);
+    if (nv && ttd != null) add(`v:${nv}|${ttd}`, r.id);
+    if (amt != null && r.card_last4) add(`a:${amt}|${r.card_last4}`, r.id);
+  }
+
+  // dupId -> original (earliest) id
+  const dupToOriginal = new Map<string, string>();
+  for (const ids of groups.values()) {
+    if (ids.length < 2) continue;
+    const [first, ...rest] = ids;
+    for (const dupId of rest) {
+      if (!dupToOriginal.has(dupId)) dupToOriginal.set(dupId, first);
+    }
+  }
+
+  const alreadyFlagged = new Set(
+    rows.filter((r) => r.duplicate_of).map((r) => r.id)
+  );
+
+  let flagged = 0;
+  for (const [dupId, originalId] of dupToOriginal) {
+    if (alreadyFlagged.has(dupId)) continue;
+    await supabase
+      .from("receipts")
+      .update({ duplicate_of: originalId, status: "needs_review" })
+      .eq("id", dupId);
+    flagged++;
+  }
+
+  revalidatePath("/receipts");
+  revalidatePath("/review");
+  return { flagged };
+}
+
 export async function deleteReceipt(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (!id) return;

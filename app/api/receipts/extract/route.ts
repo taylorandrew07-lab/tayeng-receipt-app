@@ -110,21 +110,43 @@ export async function POST(request: NextRequest) {
   });
 
   // --- Duplicate detection ---------------------------------------------
-  // Same date + same vendor + (near) same TTD amount as an existing receipt.
+  // A receipt is a likely duplicate of an existing one if ANY hold:
+  //  - identical file name, OR
+  //  - same vendor + same TTD amount, OR
+  //  - same original amount + same card last 4.
   let duplicateOf: string | null = null;
-  if (result.vendor_name && result.receipt_date && result.ttd_amount != null) {
-    const norm = normalizeVendor(result.vendor_name);
+  {
+    const nv = normalizeVendor(result.vendor_name);
+    const ttd = result.ttd_amount != null ? Math.round(Number(result.ttd_amount) * 100) : null;
+    const amt = result.amount != null ? Math.round(Number(result.amount) * 100) : null;
+    const fn = (file.file_name ?? "").toLowerCase().trim();
+
     const { data: candidates } = await supabase
       .from("receipts")
-      .select("id, vendor_name, ttd_amount")
-      .eq("receipt_date", result.receipt_date)
+      .select("id, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)")
       .neq("id", receiptId)
       .is("duplicate_of", null);
-    const match = (candidates ?? []).find(
-      (c) =>
-        normalizeVendor(c.vendor_name) === norm &&
-        Math.abs(Number(c.ttd_amount ?? 0) - Number(result.ttd_amount)) < 0.01
-    );
+
+    const match = (
+      (candidates ?? []) as {
+        id: string;
+        vendor_name: string | null;
+        ttd_amount: number | null;
+        amount: number | null;
+        card_last4: string | null;
+        receipt_files: { file_name: string }[];
+      }[]
+    ).find((c) => {
+      const cv = normalizeVendor(c.vendor_name);
+      const cttd = c.ttd_amount != null ? Math.round(Number(c.ttd_amount) * 100) : null;
+      const camt = c.amount != null ? Math.round(Number(c.amount) * 100) : null;
+      const cfn = (c.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
+      if (fn && cfn && fn === cfn) return true;
+      if (nv && ttd != null && cv === nv && cttd === ttd) return true;
+      if (amt != null && result.card_last4 && camt === amt && c.card_last4 === result.card_last4)
+        return true;
+      return false;
+    });
     if (match) duplicateOf = match.id;
   }
 

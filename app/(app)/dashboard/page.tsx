@@ -54,23 +54,27 @@ export default async function DashboardPage() {
           label="Receipts this month"
           value={String(rows.length)}
           hint={formatMonthKey(monthKey)}
+          href="/receipts"
         />
         <StatCard
           label="Needs review"
           value={String(needsReview)}
           tone={needsReview > 0 ? "warn" : "default"}
           hint={needsReview > 0 ? "Action needed" : "All clear"}
+          href="/review"
         />
         <StatCard
           label="Reimbursable"
           value={formatTTD(reimbursableTotal)}
           tone="good"
-          hint="Personal card + cash"
+          hint="Tap to see all reimbursable"
+          href="/receipts?month=all&kind=reimbursable"
         />
         <StatCard
           label="Company card"
           value={formatTTD(companyCardTotal)}
-          hint="Accounting only"
+          hint="Tap to see all company card"
+          href="/receipts?month=all&kind=company"
         />
       </div>
 

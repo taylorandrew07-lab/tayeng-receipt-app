@@ -3,20 +3,27 @@
 import { useState } from "react";
 import { formatMonthKey } from "@/lib/month";
 
+const TYPES = [
+  { value: "reimbursable", label: "Reimbursable (personal + cash)" },
+  { value: "company", label: "Company card (accounting)" },
+  { value: "all", label: "All expenses" },
+];
+
 export function ReportLauncher({ months }: { months: string[] }) {
   const [month, setMonth] = useState(months[0]);
+  const [type, setType] = useState("reimbursable");
   const [downloading, setDownloading] = useState(false);
 
   async function download() {
     setDownloading(true);
     try {
-      const res = await fetch(`/api/reports/generate?month=${month}`);
+      const res = await fetch(`/api/reports/generate?month=${month}&type=${type}`);
       if (!res.ok) throw new Error("Failed to generate report");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `expense-report-${month}.pdf`;
+      a.download = `${type}-report-${month}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -31,6 +38,21 @@ export function ReportLauncher({ months }: { months: string[] }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-end gap-4">
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-700">Report type</span>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+          >
+            {TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-slate-700">Month</span>
           <select
