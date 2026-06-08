@@ -93,19 +93,9 @@ export function classify(input: ClassifyInput): ClassifyResult {
   }
 
   // --- Reimbursable -----------------------------------------------------
-  let reimbursable: boolean | null;
-  switch (payment_method) {
-    case "personal_card":
-    case "cash":
-      reimbursable = true;
-      break;
-    case "company_card":
-      reimbursable = false;
-      break;
-    default:
-      reimbursable = null; // online / unknown / other -> decide manually
-      reasons.push("Reimbursable status needs confirmation");
-  }
+  // Rule: only company-card spend is NOT reimbursable. Everything else
+  // (personal card, cash, online, other, unknown) IS reimbursable.
+  const reimbursable = payment_method !== "company_card";
 
   // --- Category ---------------------------------------------------------
   const normVendor = normalizeVendor(extraction.vendor_name);

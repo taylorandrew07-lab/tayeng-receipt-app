@@ -112,6 +112,9 @@ export function ReceiptsTable({
     .reduce((s, r) => s + Number(r.ttd_amount ?? 0), 0);
 
   const allVisibleSelected = visible.length > 0 && visible.every((r) => picked.has(r.id));
+  const selectedTotal = rows
+    .filter((r) => picked.has(r.id))
+    .reduce((s, r) => s + Number(r.ttd_amount ?? 0), 0);
 
   function toggle(id: string) {
     setPicked((prev) => {
@@ -245,6 +248,7 @@ export function ReceiptsTable({
       {picked.size > 0 && (
         <div className="mb-3 flex items-center gap-3 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">
           <span>{picked.size} selected</span>
+          <span className="font-semibold">Total {formatTTD(selectedTotal)}</span>
           <button
             type="button"
             onClick={bulkDelete}

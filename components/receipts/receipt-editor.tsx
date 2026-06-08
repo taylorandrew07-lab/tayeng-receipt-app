@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { saveReceipt, deleteReceipt, type ReceiptFormState } from "@/lib/receipts/actions";
-import type { Card, Category, Receipt } from "@/lib/types";
+import type { Card, Category, PaymentMethod, Receipt } from "@/lib/types";
 
 const PAYMENT_OPTIONS: { value: string; label: string }[] = [
   { value: "personal_card", label: "Personal card (reimbursable)" },
@@ -26,13 +26,8 @@ export function ReceiptEditor({
     saveReceipt,
     undefined
   );
-
-  const reimb =
-    receipt.reimbursable === true
-      ? "yes"
-      : receipt.reimbursable === false
-        ? "no"
-        : "";
+  const [payment, setPayment] = useState<PaymentMethod>(receipt.payment_method);
+  const reimbursable = payment !== "company_card";
 
   return (
     <form action={action} className="space-y-5">
@@ -72,7 +67,8 @@ export function ReceiptEditor({
         <Field label="Payment method">
           <select
             name="payment_method"
-            defaultValue={receipt.payment_method}
+            value={payment}
+            onChange={(e) => setPayment(e.target.value as PaymentMethod)}
             className={inputCls}
           >
             {PAYMENT_OPTIONS.map((o) => (
@@ -137,12 +133,16 @@ export function ReceiptEditor({
           />
         </Field>
 
-        <Field label="Reimbursable">
-          <select name="reimbursable" defaultValue={reimb} className={inputCls}>
-            <option value="">— Not decided —</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+        <Field label="Reimbursable (automatic)">
+          <div
+            className={`flex h-[38px] items-center rounded-lg border px-3 text-sm font-medium ${
+              reimbursable
+                ? "border-green-200 bg-green-50 text-green-800"
+                : "border-blue-200 bg-blue-50 text-blue-800"
+            }`}
+          >
+            {reimbursable ? "Yes — reimbursable" : "No — company card"}
+          </div>
         </Field>
       </div>
 

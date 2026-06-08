@@ -55,9 +55,8 @@ export async function saveReceipt(
   const category_id = String(formData.get("category_id") ?? "").trim() || null;
   const card_last4Raw = String(formData.get("card_last4") ?? "").trim();
   const card_last4 = /^\d{4}$/.test(card_last4Raw) ? card_last4Raw : null;
-  const reimbursableRaw = String(formData.get("reimbursable") ?? "");
-  const reimbursable =
-    reimbursableRaw === "yes" ? true : reimbursableRaw === "no" ? false : null;
+  // Reimbursable is derived, not chosen: only company-card spend is not reimbursable.
+  const reimbursable = payment_method !== "company_card";
   const notes = String(formData.get("notes") ?? "").trim() || null;
   // Note: month_key (upload month) is intentionally NOT changed here — the
   // workspace is organised by upload date, and editing the receipt date must

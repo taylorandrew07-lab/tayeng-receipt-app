@@ -23,8 +23,9 @@ export async function GET(request: NextRequest) {
     new Date().toISOString().slice(0, 7);
   const type = request.nextUrl.searchParams.get("type") ?? "all";
 
-  const [{ data: profile }, { data: receipts }] = await Promise.all([
+  const [{ data: profile }, { data: settings }, { data: receipts }] = await Promise.all([
     supabase.from("profiles").select("full_name, company_name").eq("id", user.id).single(),
+    supabase.from("user_settings").select("usd_to_ttd_rate").eq("user_id", user.id).single(),
     supabase
       .from("receipts")
       .select("*, categories(name)")
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       .is("duplicate_of", null) // never include flagged duplicates in a report
       .order("receipt_date", { ascending: true, nullsFirst: true }),
   ]);
+  const usdRate = Number(settings?.usd_to_ttd_rate ?? 6.8);
 
   const allRows = (receipts ?? []) as Row[];
   const rowsData =
@@ -84,6 +86,12 @@ export async function GET(request: NextRequest) {
       period: formatMonthKey(month),
       rows,
       totals,
+      rate: usdRate.toFixed(2),
+      totalTtd: formatTTD(rowsData.reduce((a, r) => a + ttd(r), 0)),
+      usdSubtotal: `USD ${rowsData
+        .filter((r) => (r.currency ?? "").toUpperCase() === "USD")
+        .reduce((a, r) => a + Number(r.amount ?? 0), 0)
+        .toFixed(2)}`,
     })
   );
 

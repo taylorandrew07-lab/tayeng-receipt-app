@@ -30,6 +30,9 @@ export type ReportData = {
   period: string;
   rows: ReportRow[];
   totals: ReportTotalsView;
+  rate: string; // e.g. "6.80"
+  totalTtd: string; // grand total of the TTD column, formatted
+  usdSubtotal: string; // sum of original USD amounts, formatted
 };
 
 const s = StyleSheet.create({
@@ -118,6 +121,16 @@ export function ReportDocument(data: ReportData) {
         <Summary label="Company card expenses" value={data.totals.company_card} />
         <Summary label="Items still needing review" value={String(data.totals.needs_review_count)} />
         <Summary label="Total items" value={String(data.totals.count)} />
+
+        <Text style={s.sectionTitle}>Currency</Text>
+        <Summary label={`USD invoices subtotal (original)`} value={data.usdSubtotal} />
+        <Summary label={`Exchange rate applied (USD to TTD)`} value={data.rate} />
+        <View style={[s.summaryRow, { borderBottomWidth: 0, marginTop: 6 }]}>
+          <Text style={[s.summaryLabel, { fontSize: 13, fontFamily: "Helvetica-Bold", color: "#0f172a" }]}>
+            GRAND TOTAL (TTD)
+          </Text>
+          <Text style={{ fontSize: 13, fontFamily: "Helvetica-Bold" }}>{data.totalTtd}</Text>
+        </View>
       </Page>
 
       {/* Detailed table (landscape for width) */}
@@ -151,6 +164,33 @@ export function ReportDocument(data: ReportData) {
             <Text style={[s.cell, { width: `${COLS.notes}%` }]}>{r.notes}</Text>
           </View>
         ))}
+        <View
+          style={[s.tRow, { borderTopWidth: 1.5, borderTopColor: "#0f172a" }]}
+          wrap={false}
+        >
+          <Text
+            style={[
+              s.cell,
+              {
+                width: `${COLS.n + COLS.date + COLS.vendor + COLS.category + COLS.payment + COLS.card + COLS.currency + COLS.amount}%`,
+                fontFamily: "Helvetica-Bold",
+                textAlign: "right",
+                paddingRight: 4,
+              },
+            ]}
+          >
+            TOTAL (TTD)
+          </Text>
+          <Text
+            style={[
+              s.cell,
+              { width: `${COLS.ttd}%`, textAlign: "right", fontFamily: "Helvetica-Bold" },
+            ]}
+          >
+            {data.totalTtd}
+          </Text>
+          <Text style={[s.cell, { width: `${COLS.reimb + COLS.notes}%` }]} />
+        </View>
       </Page>
       {/* The actual receipt documents are appended after this with pdf-lib. */}
     </Document>
