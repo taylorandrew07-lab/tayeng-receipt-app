@@ -132,25 +132,29 @@ export async function POST(request: NextRequest) {
 
   // --- Duplicate detection ---------------------------------------------
   // A receipt is a likely duplicate of an existing one if ANY hold:
-  //  - identical file name, OR
-  //  - same vendor + same TTD amount, OR
-  //  - same original amount + same card last 4.
+  //  - identical file name (same file re-uploaded), OR
+  //  - same vendor + same TTD amount + SAME DATE, OR
+  //  - same original amount + same card last 4 + SAME DATE.
+  // Including the date means two genuine same-amount purchases on different
+  // days are NOT flagged.
   let duplicateOf: string | null = null;
   {
     const nv = normalizeVendor(result.vendor_name);
     const ttd = result.ttd_amount != null ? Math.round(Number(result.ttd_amount) * 100) : null;
     const amt = result.amount != null ? Math.round(Number(result.amount) * 100) : null;
+    const date = result.receipt_date;
     const fn = (file.file_name ?? "").toLowerCase().trim();
 
     const { data: candidates } = await supabase
       .from("receipts")
-      .select("id, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)")
+      .select("id, receipt_date, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)")
       .neq("id", receiptId)
       .is("duplicate_of", null);
 
     const match = (
       (candidates ?? []) as {
         id: string;
+        receipt_date: string | null;
         vendor_name: string | null;
         ttd_amount: number | null;
         amount: number | null;
@@ -163,8 +167,16 @@ export async function POST(request: NextRequest) {
       const camt = c.amount != null ? Math.round(Number(c.amount) * 100) : null;
       const cfn = (c.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
       if (fn && cfn && fn === cfn) return true;
-      if (nv && ttd != null && cv === nv && cttd === ttd) return true;
-      if (amt != null && result.card_last4 && camt === amt && c.card_last4 === result.card_last4)
+      if (nv && ttd != null && date && cv === nv && cttd === ttd && c.receipt_date === date)
+        return true;
+      if (
+        amt != null &&
+        result.card_last4 &&
+        date &&
+        camt === amt &&
+        c.card_last4 === result.card_last4 &&
+        c.receipt_date === date
+      )
         return true;
       return false;
     });

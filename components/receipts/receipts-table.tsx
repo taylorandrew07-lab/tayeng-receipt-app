@@ -3,7 +3,12 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deleteReceipts, findDuplicates, setReceiptsSent } from "@/lib/receipts/actions";
+import {
+  deleteReceipts,
+  findDuplicates,
+  setReceiptsSent,
+  dismissDuplicate,
+} from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
@@ -381,9 +386,19 @@ export function ReceiptsTable({
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right">
-                      <Link href={`/receipts/${r.id}`} className="text-sm font-medium text-slate-900 underline">
-                        Open
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {r.duplicate_of && (
+                          <form action={dismissDuplicate}>
+                            <input type="hidden" name="id" value={r.id} />
+                            <button className="whitespace-nowrap text-xs font-medium text-amber-700 underline">
+                              Not a dup
+                            </button>
+                          </form>
+                        )}
+                        <Link href={`/receipts/${r.id}`} className="text-sm font-medium text-slate-900 underline">
+                          Open
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );

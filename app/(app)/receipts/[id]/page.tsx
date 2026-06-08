@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { ReceiptEditor } from "@/components/receipts/receipt-editor";
+import { dismissDuplicate } from "@/lib/receipts/actions";
 import type { Card, Category, Receipt } from "@/lib/types";
 
 export default async function ReceiptEditPage({
@@ -53,6 +54,22 @@ export default async function ReceiptEditPage({
           </Link>
         }
       />
+
+      {receipt.duplicate_of && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm text-amber-800">
+            ⚠️ This was flagged as a <strong>possible duplicate</strong> of another
+            receipt. If it&apos;s a separate purchase (e.g. two fuel fill-ups for the
+            same amount), mark it as not a duplicate.
+          </p>
+          <form action={dismissDuplicate}>
+            <input type="hidden" name="id" value={receipt.id} />
+            <button className="whitespace-nowrap rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+              Not a duplicate
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">

@@ -158,22 +158,26 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
   const { data } = await supabase
     .from("receipts")
     .select(
-      "id, created_at, vendor_name, ttd_amount, amount, card_last4, duplicate_of, receipt_files(file_name)"
+      "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(file_name)"
     )
     .order("created_at", { ascending: true });
 
   const rows = (data ?? []) as {
     id: string;
     created_at: string;
+    receipt_date: string | null;
     vendor_name: string | null;
     ttd_amount: number | null;
     amount: number | null;
     card_last4: string | null;
     duplicate_of: string | null;
+    not_duplicate: boolean;
     receipt_files: { file_name: string }[];
   }[];
 
-  // Group ids by each duplicate key (rows are in upload order).
+  // Group ids by each duplicate key (rows are in upload order). Amount-based
+  // keys include the DATE so two legitimate same-amount purchases on different
+  // days are NOT treated as duplicates; an identical file name always is.
   const groups = new Map<string, string[]>();
   const add = (key: string, id: string) => {
     if (!key) return;
@@ -185,10 +189,11 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     const nv = normalizeVendor(r.vendor_name);
     const ttd = r.ttd_amount != null ? Math.round(Number(r.ttd_amount) * 100) : null;
     const amt = r.amount != null ? Math.round(Number(r.amount) * 100) : null;
+    const d = r.receipt_date ?? "";
     const fn = (r.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
     if (fn) add(`f:${fn}`, r.id);
-    if (nv && ttd != null) add(`v:${nv}|${ttd}`, r.id);
-    if (amt != null && r.card_last4) add(`a:${amt}|${r.card_last4}`, r.id);
+    if (nv && ttd != null && d) add(`v:${nv}|${ttd}|${d}`, r.id);
+    if (amt != null && r.card_last4 && d) add(`a:${amt}|${r.card_last4}|${d}`, r.id);
   }
 
   // dupId -> original (earliest) id
@@ -201,13 +206,14 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     }
   }
 
-  const alreadyFlagged = new Set(
-    rows.filter((r) => r.duplicate_of).map((r) => r.id)
+  // Never re-flag receipts already flagged, or ones the user dismissed.
+  const skip = new Set(
+    rows.filter((r) => r.duplicate_of || r.not_duplicate).map((r) => r.id)
   );
 
   let flagged = 0;
   for (const [dupId, originalId] of dupToOriginal) {
-    if (alreadyFlagged.has(dupId)) continue;
+    if (skip.has(dupId)) continue;
     await supabase
       .from("receipts")
       .update({ duplicate_of: originalId, status: "needs_review" })
@@ -233,6 +239,23 @@ export async function setReceiptsSent(ids: string[], sent: boolean): Promise<voi
     .update({ sent, sent_at: sent ? new Date().toISOString() : null })
     .in("id", ids);
   revalidatePath("/receipts");
+}
+
+/**
+ * Marks a receipt as NOT a duplicate: clears the flag and remembers the
+ * decision so the auto-detector never re-flags it.
+ */
+export async function dismissDuplicate(formData: FormData): Promise<void> {
+  "use server";
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase
+    .from("receipts")
+    .update({ duplicate_of: null, not_duplicate: true })
+    .eq("id", id);
+  revalidatePath("/receipts");
+  revalidatePath("/review");
 }
 
 export async function deleteReceipt(formData: FormData): Promise<void> {
