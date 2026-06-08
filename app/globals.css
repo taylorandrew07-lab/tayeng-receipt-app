@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
+/* This app uses a single light theme (white cards, dark slate text).
+   Lock to light mode so OS/browser dark mode can't invert text/inputs. */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,15 +15,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Belt-and-suspenders: form controls render with dark text on white. */
+input,
+textarea,
+select {
+  color: #0f172a;
 }
