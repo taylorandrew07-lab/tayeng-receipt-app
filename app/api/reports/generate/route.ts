@@ -1,14 +1,10 @@
 import { type NextRequest } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createClient } from "@/lib/supabase/server";
-import {
-  ReportDocument,
-  type ReportRow,
-  type ReportImage,
-} from "@/lib/reports/report-document";
+import { ReportDocument, type ReportRow } from "@/lib/reports/report-document";
 import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
-import { pdfFirstPagePng } from "@/lib/reports/pdf-to-image";
 import type { Receipt } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -79,18 +75,47 @@ export async function GET(request: NextRequest) {
     notes: r.notes ?? "",
   }));
 
-  // Fetch each receipt's primary file and turn it into an embeddable image:
-  // JPG/PNG are embedded directly; PDFs are rendered (first page) to PNG.
-  // Done sequentially to keep memory/time predictable on the serverless runtime.
-  const images: ReportImage[] = [];
+  // 1) Render the summary + detailed table (cover pages) with @react-pdf.
+  const coverBytes = await renderToBuffer(
+    ReportDocument({
+      title: reportTitle,
+      company: profile?.company_name ?? "",
+      userName: profile?.full_name ?? user.email ?? "",
+      period: formatMonthKey(month),
+      rows,
+      totals,
+    })
+  );
+
+  // 2) Merge the ACTUAL receipt documents onto the end with pdf-lib:
+  //    PDF receipts have their pages copied in; image receipts get a full page.
+  const merged = await PDFDocument.load(coverBytes);
+  const labelFont = await merged.embedFont(StandardFonts.Helvetica);
+  const A4: [number, number] = [595.28, 841.89];
+
+  const drawLabel = (
+    page: import("pdf-lib").PDFPage,
+    text: string
+  ) => {
+    const size = 9;
+    const w = labelFont.widthOfTextAtSize(text, size) + 8;
+    const y = page.getHeight() - 16;
+    page.drawRectangle({
+      x: 4,
+      y: y - 3,
+      width: w,
+      height: size + 6,
+      color: rgb(1, 1, 1),
+      opacity: 0.85,
+    });
+    page.drawText(text, { x: 8, y, size, font: labelFont, color: rgb(0.06, 0.09, 0.16) });
+  };
+
   for (let i = 0; i < rowsData.length; i++) {
     const r = rowsData[i];
-    const base: ReportImage = {
-      n: i + 1,
-      vendor: r.vendor_name ?? "Unknown",
-      ttd: r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—",
-      dataUrl: null,
-    };
+    const label = `Receipt #${i + 1} · ${r.vendor_name ?? "Unknown"} · ${
+      r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—"
+    }`;
 
     const { data: file } = await supabase
       .from("receipt_files")
@@ -99,55 +124,64 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    if (!file) {
-      images.push(base);
-      continue;
-    }
 
-    const { data: blob } = await supabase.storage
-      .from("documents")
-      .download(file.storage_path);
-    if (!blob) {
-      images.push(base);
-      continue;
-    }
+    try {
+      if (!file) {
+        const page = merged.addPage(A4);
+        drawLabel(page, `${label} — no file attached`);
+        continue;
+      }
 
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const name = (file.file_name ?? "").toLowerCase();
-    const mime = (file.mime_type ?? "").toLowerCase();
-    const isPng = mime.includes("png") || name.endsWith(".png");
-    const isJpg = mime.includes("jpeg") || /\.jpe?g$/.test(name);
-    const isPdf = mime.includes("pdf") || name.endsWith(".pdf");
+      const { data: blob } = await supabase.storage
+        .from("documents")
+        .download(file.storage_path);
+      if (!blob) {
+        const page = merged.addPage(A4);
+        drawLabel(page, `${label} — file unavailable`);
+        continue;
+      }
 
-    if (isJpg || isPng) {
-      const b64 = Buffer.from(bytes).toString("base64");
-      images.push({
-        ...base,
-        dataUrl: `data:${isPng ? "image/png" : "image/jpeg"};base64,${b64}`,
-      });
-    } else if (isPdf) {
-      const png = await pdfFirstPagePng(bytes);
-      images.push(
-        png
-          ? { ...base, dataUrl: `data:image/png;base64,${png.toString("base64")}` }
-          : base
-      );
-    } else {
-      images.push(base);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const name = (file.file_name ?? "").toLowerCase();
+      const mime = (file.mime_type ?? "").toLowerCase();
+      const isPng = mime.includes("png") || name.endsWith(".png");
+      const isJpg = mime.includes("jpeg") || /\.jpe?g$/.test(name);
+      const isPdf = mime.includes("pdf") || name.endsWith(".pdf");
+
+      if (isPdf) {
+        const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await merged.copyPages(src, src.getPageIndices());
+        pages.forEach((p, idx) => {
+          merged.addPage(p);
+          if (idx === 0) drawLabel(p, label);
+        });
+      } else if (isJpg || isPng) {
+        const img = isPng ? await merged.embedPng(bytes) : await merged.embedJpg(bytes);
+        const page = merged.addPage(A4);
+        const margin = 28;
+        const maxW = A4[0] - margin * 2;
+        const maxH = A4[1] - margin * 2 - 20;
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        page.drawImage(img, {
+          x: (A4[0] - w) / 2,
+          y: (A4[1] - h) / 2 - 10,
+          width: w,
+          height: h,
+        });
+        drawLabel(page, label);
+      } else {
+        const page = merged.addPage(A4);
+        drawLabel(page, `${label} — unsupported file type`);
+      }
+    } catch {
+      const page = merged.addPage(A4);
+      drawLabel(page, `${label} — could not be embedded`);
     }
   }
 
-  const pdf = await renderToBuffer(
-    ReportDocument({
-      title: reportTitle,
-      company: profile?.company_name ?? "",
-      userName: profile?.full_name ?? user.email ?? "",
-      period: formatMonthKey(month),
-      rows,
-      totals,
-      images,
-    })
-  );
+  const pdf = await merged.save();
 
   // Cache the totals for the dashboard / history.
   await supabase.from("monthly_reports").upsert(

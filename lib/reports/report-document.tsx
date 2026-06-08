@@ -1,11 +1,4 @@
-import {
-  Document,
-  Page,
-  View,
-  Text,
-  Image,
-  StyleSheet,
-} from "@react-pdf/renderer";
+import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 
 export type ReportRow = {
   n: number;
@@ -19,13 +12,6 @@ export type ReportRow = {
   ttd: string;
   reimbursable: string;
   notes: string;
-};
-
-export type ReportImage = {
-  n: number;
-  vendor: string;
-  ttd: string;
-  dataUrl: string | null; // null for PDFs / unembeddable originals
 };
 
 export type ReportTotalsView = {
@@ -44,7 +30,6 @@ export type ReportData = {
   period: string;
   rows: ReportRow[];
   totals: ReportTotalsView;
-  images: ReportImage[];
 };
 
 const s = StyleSheet.create({
@@ -167,31 +152,7 @@ export function ReportDocument(data: ReportData) {
           </View>
         ))}
       </Page>
-
-      {/* Receipt images, multiple per page, numbered to match the table */}
-      {data.images.length > 0 && (
-        <Page size="A4" style={s.page}>
-          <Text style={s.sectionTitle}>Receipt copies</Text>
-          <View style={s.imgGrid}>
-            {data.images.map((img) => (
-              <View style={s.imgCard} key={img.n} wrap={false}>
-                <View style={s.imgBox}>
-                  {img.dataUrl ? (
-                    <Image style={s.img} src={img.dataUrl} />
-                  ) : (
-                    <View style={s.pdfBox}>
-                      <Text style={{ fontSize: 9, color: "#64748b" }}>PDF document</Text>
-                    </View>
-                  )}
-                  <Text style={s.imgCaption}>
-                    #{img.n} · {img.vendor} · {img.ttd}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </Page>
-      )}
+      {/* The actual receipt documents are appended after this with pdf-lib. */}
     </Document>
   );
 }

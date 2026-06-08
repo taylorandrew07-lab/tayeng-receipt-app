@@ -1,13 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep native/Node-internal packages out of the bundler.
-  serverExternalPackages: [
-    "@react-pdf/renderer",
-    "pdf-to-img",
-    "pdfjs-dist",
-    "@napi-rs/canvas",
-  ],
+  // Keep the PDF renderer out of the bundler — it relies on Node internals.
+  serverExternalPackages: ["@react-pdf/renderer"],
 };
 
 export default nextConfig;
