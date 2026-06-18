@@ -7,6 +7,7 @@ const TYPES = [
   { value: "reimbursable", label: "Reimbursable (personal + cash)" },
   { value: "company", label: "Company card (accounting)" },
   { value: "all", label: "All expenses" },
+  { value: "billback", label: "Bill-back (by client / vessel)" },
 ];
 
 export function ReportLauncher({ months }: { months: string[] }) {
@@ -17,7 +18,11 @@ export function ReportLauncher({ months }: { months: string[] }) {
   async function download() {
     setDownloading(true);
     try {
-      const res = await fetch(`/api/reports/generate?month=${month}&type=${type}`);
+      const endpoint =
+        type === "billback"
+          ? `/api/reports/billback?month=${month}`
+          : `/api/reports/generate?month=${month}&type=${type}`;
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error("Failed to generate report");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

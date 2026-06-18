@@ -28,6 +28,13 @@ export function ReceiptEditor({
   );
   const [payment, setPayment] = useState<PaymentMethod>(receipt.payment_method);
   const reimbursable = payment !== "company_card";
+  const [cardLast4, setCardLast4] = useState(receipt.card_last4 ?? "");
+  const [billBack, setBillBack] = useState(receipt.bill_back);
+  const [billBackType, setBillBackType] = useState<"client" | "vessel">(
+    receipt.bill_back_type ?? "client"
+  );
+  const [billBackName, setBillBackName] = useState(receipt.bill_back_name ?? "");
+  const is4881 = cardLast4 === "4881";
 
   return (
     <form action={action} className="space-y-5">
@@ -95,7 +102,8 @@ export function ReceiptEditor({
             name="card_last4"
             inputMode="numeric"
             maxLength={4}
-            defaultValue={receipt.card_last4 ?? ""}
+            value={cardLast4}
+            onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))}
             className={inputCls}
           />
         </Field>
@@ -144,6 +152,76 @@ export function ReceiptEditor({
             {reimbursable ? "Yes — reimbursable" : "No — company card"}
           </div>
         </Field>
+      </div>
+
+      {/* Bill-back: charge this expense back to a client or vessel. */}
+      <div
+        className={`rounded-xl border p-4 ${
+          billBack
+            ? "border-purple-300 bg-purple-50"
+            : is4881
+              ? "border-purple-300 bg-purple-50/40"
+              : "border-slate-200 bg-slate-50"
+        }`}
+      >
+        <input type="hidden" name="bill_back" value={billBack ? "yes" : "no"} />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              Bill back to a client / vessel?
+            </p>
+            {is4881 && !billBack && (
+              <p className="mt-0.5 text-xs font-medium text-purple-700">
+                This is the company card ending 4881 — mark it if it should be billed back.
+              </p>
+            )}
+          </div>
+          <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm">
+            <button
+              type="button"
+              onClick={() => setBillBack(false)}
+              className={`px-3 py-1.5 font-medium ${
+                !billBack ? "bg-slate-900 text-white" : "bg-white text-slate-600"
+              }`}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillBack(true)}
+              className={`px-3 py-1.5 font-medium ${
+                billBack ? "bg-purple-700 text-white" : "bg-white text-slate-600"
+              }`}
+            >
+              Yes
+            </button>
+          </div>
+        </div>
+
+        {billBack && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Type">
+              <select
+                name="bill_back_type"
+                value={billBackType}
+                onChange={(e) => setBillBackType(e.target.value as "client" | "vessel")}
+                className={inputCls}
+              >
+                <option value="client">Client</option>
+                <option value="vessel">Vessel</option>
+              </select>
+            </Field>
+            <Field label={billBackType === "vessel" ? "Vessel name" : "Client name"}>
+              <input
+                name="bill_back_name"
+                value={billBackName}
+                onChange={(e) => setBillBackName(e.target.value)}
+                placeholder={billBackType === "vessel" ? "e.g. MV Caribbean Star" : "e.g. ABC Ltd"}
+                className={inputCls}
+              />
+            </Field>
+          </div>
+        )}
       </div>
 
       <Field label="Notes">

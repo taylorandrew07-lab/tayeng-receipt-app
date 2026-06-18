@@ -66,6 +66,25 @@ export async function saveReceipt(
     return { error: "Invalid payment method." };
   }
 
+  // --- Bill-back (charge back to a client or vessel) -------------------
+  const billBack = String(formData.get("bill_back") ?? "") === "yes";
+  let bill_back_type: "client" | "vessel" | null = null;
+  let bill_back_name: string | null = null;
+  let bill_back_normalized: string | null = null;
+  if (billBack) {
+    const typeRaw = String(formData.get("bill_back_type") ?? "").trim();
+    const nameRaw = String(formData.get("bill_back_name") ?? "").trim();
+    if (typeRaw !== "client" && typeRaw !== "vessel") {
+      return { error: "Choose whether the bill-back is for a Client or a Vessel." };
+    }
+    if (!nameRaw) {
+      return { error: "Enter the client or vessel name to bill back to." };
+    }
+    bill_back_type = typeRaw;
+    bill_back_name = nameRaw;
+    bill_back_normalized = normalizeVendor(nameRaw);
+  }
+
   const { error } = await supabase
     .from("receipts")
     .update({
@@ -81,6 +100,10 @@ export async function saveReceipt(
       category_id,
       reimbursable,
       notes,
+      bill_back: billBack,
+      bill_back_type,
+      bill_back_name,
+      bill_back_normalized,
       status: "confirmed",
     })
     .eq("id", id);

@@ -100,6 +100,10 @@ export type Receipt = {
   sent_at: string | null;
   paid: boolean;
   paid_at: string | null;
+  bill_back: boolean;
+  bill_back_type: "client" | "vessel" | null;
+  bill_back_name: string | null;
+  bill_back_normalized: string | null;
   created_at: string;
   updated_at: string;
 };

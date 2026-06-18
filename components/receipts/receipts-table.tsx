@@ -93,6 +93,9 @@ export function ReceiptsTable({
       | "unpaid"
       | "paid"
   );
+  const [billBackFilter, setBillBackFilter] = useState<
+    "all" | "billback" | "not" | "client" | "vessel"
+  >("all");
   const [sortKey, setSortKey] = useState<SortKey>("upload");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -117,6 +120,12 @@ export function ReceiptsTable({
     else if (sentFilter === "sent") list = list.filter((r) => r.sent);
     if (paidFilter === "unpaid") list = list.filter((r) => !r.paid);
     else if (paidFilter === "paid") list = list.filter((r) => r.paid);
+    if (billBackFilter === "billback") list = list.filter((r) => r.bill_back);
+    else if (billBackFilter === "not") list = list.filter((r) => !r.bill_back);
+    else if (billBackFilter === "client")
+      list = list.filter((r) => r.bill_back && r.bill_back_type === "client");
+    else if (billBackFilter === "vessel")
+      list = list.filter((r) => r.bill_back && r.bill_back_type === "vessel");
     const dir = sortDir === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       const va = sortVal(a, sortKey);
@@ -124,7 +133,17 @@ export function ReceiptsTable({
       if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
       return String(va).localeCompare(String(vb)) * dir;
     });
-  }, [rows, statusFilter, kind, duplicatesOnly, sentFilter, paidFilter, sortKey, sortDir]);
+  }, [
+    rows,
+    statusFilter,
+    kind,
+    duplicatesOnly,
+    sentFilter,
+    paidFilter,
+    billBackFilter,
+    sortKey,
+    sortDir,
+  ]);
 
   const reimbursableTotal = visible
     .filter((r) => r.reimbursable)
@@ -283,6 +302,22 @@ export function ReceiptsTable({
           <option value="paid">Paid</option>
         </select>
 
+        <select
+          value={billBackFilter}
+          onChange={(e) =>
+            setBillBackFilter(
+              e.target.value as "all" | "billback" | "not" | "client" | "vessel"
+            )
+          }
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+        >
+          <option value="all">All bill-back</option>
+          <option value="billback">Bill-back only</option>
+          <option value="not">Not bill-back</option>
+          <option value="client">Clients</option>
+          <option value="vessel">Vessels</option>
+        </select>
+
         <button
           type="button"
           onClick={runFindDuplicates}
@@ -406,6 +441,11 @@ export function ReceiptsTable({
                           </span>
                         )}
                       </div>
+                      {r.bill_back && (
+                        <div className="max-w-[220px] truncate text-xs font-medium text-purple-700">
+                          ↩ Bill back ({r.bill_back_type}): {r.bill_back_name}
+                        </div>
+                      )}
                       {fileName && (
                         <div className="max-w-[220px] truncate text-xs text-slate-400">{fileName}</div>
                       )}
