@@ -59,14 +59,14 @@ export default async function DashboardPage() {
         action={
           <Link
             href="/upload"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
           >
             Upload receipts
           </Link>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Reimbursable outstanding"
           value={formatTTD(outstandingTotal)}
@@ -100,7 +100,7 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+      <div className="stagger mt-6 grid gap-4 lg:grid-cols-3">
         <QuickLink
           href="/receipts?month=all&kind=reimbursable&paid=unpaid"
           title="Clear paid reimbursements"
@@ -137,10 +137,15 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
+      className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
     >
-      <p className="font-semibold text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{body}</p>
+      <p className="font-semibold text-slate-900">
+        {title}
+        <span className="ml-1 inline-block text-slate-300 transition-transform group-hover:translate-x-0.5">
+          →
+        </span>
+      </p>
+      <p className="mt-1 text-sm leading-relaxed text-slate-500">{body}</p>
     </Link>
   );
 }

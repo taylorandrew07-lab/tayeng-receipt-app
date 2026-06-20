@@ -1,16 +1,33 @@
 @import "tailwindcss";
 
-/* This app uses a single light theme (white cards, dark slate text).
-   Lock to light mode so OS/browser dark mode can't invert text/inputs. */
+/* ============================================================================
+   Tayeng Receipts — design system
+   Single light theme. Brand green derived from the logo, used as the accent.
+   ============================================================================ */
 :root {
-  --background: #ffffff;
+  --background: #f6f7f9;
   --foreground: #0f172a;
   color-scheme: light;
+
+  /* Brand accent (logo green) */
+  --brand: #059669;
+  --brand-600: #059669;
+  --brand-700: #047857;
+
+  /* Emil easing curves — stronger than the CSS built-ins */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Layered soft shadows */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.1), 0 4px 8px rgba(15, 23, 42, 0.05);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -23,11 +40,126 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Belt-and-suspenders: form controls render with dark text on white. */
+/* Dark text in all form controls on white. */
 input,
 textarea,
 select {
   color: #0f172a;
+}
+
+/* Tighter, more confident headings. */
+h1,
+h2 {
+  letter-spacing: -0.02em;
+}
+
+/* ---- Motion & feedback (applies app-wide) -------------------------------- */
+
+/* Every pressable element gets instant, subtle press feedback. */
+button,
+a[role="button"],
+[type="submit"] {
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+button:not(:disabled):active,
+[type="submit"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Smooth colour/shadow transitions on links and cards. */
+a {
+  transition: color 150ms var(--ease-out);
+}
+
+/* Accent focus ring — keyboard users get a clear, branded outline. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Branded text selection. */
+::selection {
+  background: color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+/* Refined thin scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: content-box;
+}
+
+/* ---- Entrance animations ------------------------------------------------- */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Content fades up gently on mount. */
+.fade-up {
+  animation: fade-up 420ms var(--ease-out) both;
+}
+
+/* Cascade children in with a short stagger. */
+.stagger > * {
+  animation: fade-up 420ms var(--ease-out) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 200ms; }
+.stagger > *:nth-child(6) { animation-delay: 250ms; }
+.stagger > *:nth-child(7) { animation-delay: 300ms; }
+.stagger > *:nth-child(8) { animation-delay: 350ms; }
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  button:not(:disabled):active {
+    transform: none;
+  }
 }

@@ -91,7 +91,7 @@ export default async function MatchingPage({
               <input type="hidden" name="statement_id" value={st.id} />
               <button
                 type="submit"
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 Run / refresh matching
               </button>

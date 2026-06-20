@@ -64,7 +64,7 @@ export default async function ReceiptEditPage({
           </p>
           <form action={dismissDuplicate}>
             <input type="hidden" name="id" value={receipt.id} />
-            <button className="whitespace-nowrap rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            <button className="whitespace-nowrap rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
               Not a duplicate
             </button>
           </form>

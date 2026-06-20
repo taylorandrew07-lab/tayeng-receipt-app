@@ -77,7 +77,7 @@ export function ReportLauncher({ months }: { months: string[] }) {
           type="button"
           onClick={download}
           disabled={downloading}
-          className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+          className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
         >
           {downloading ? "Generating…" : "Generate PDF report"}
         </button>

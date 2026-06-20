@@ -14,24 +14,31 @@ export default function LoginPage() {
   );
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+      {/* Soft brand glow behind the card */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/3 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300/25 blur-3xl"
+      />
+      <div className="fade-up relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <Image
             src="/logo.png"
             alt="Tayeng Receipts"
-            width={88}
-            height={88}
+            width={84}
+            height={84}
             priority
-            className="mb-3"
+            className="mb-3 drop-shadow-sm"
           />
-          <h1 className="text-2xl font-bold text-slate-900">Tayeng Receipts</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Tayeng Receipts
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
             Receipt &amp; expense processing
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_12px_40px_rgba(15,23,42,0.1)]">
           <div className="mb-5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 text-sm font-medium">
             <button
               type="button"
@@ -121,7 +128,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={pending}
-              className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+              className="w-full rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
             >
               {pending
                 ? "Please wait…"

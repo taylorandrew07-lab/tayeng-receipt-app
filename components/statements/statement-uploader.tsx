@@ -95,7 +95,7 @@ export function StatementUploader() {
         <button
           type="button"
           onClick={() => input.current?.click()}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
           Choose statement PDF(s)
         </button>
@@ -129,7 +129,7 @@ export function StatementUploader() {
             type="button"
             onClick={processAll}
             disabled={busy}
-            className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+            className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             {busy ? "Reading…" : "Upload & read statements"}
           </button>

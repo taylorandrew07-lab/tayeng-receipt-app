@@ -50,7 +50,7 @@ export function Uploader() {
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
           >
             Choose files
           </button>
