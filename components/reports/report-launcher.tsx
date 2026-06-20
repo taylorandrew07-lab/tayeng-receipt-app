@@ -48,7 +48,7 @@ export function ReportLauncher({ months }: { months: string[] }) {
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           >
             {TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -63,7 +63,7 @@ export function ReportLauncher({ months }: { months: string[] }) {
           <select
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           >
             {months.map((m) => (
               <option key={m} value={m}>

@@ -238,7 +238,7 @@ export function ReceiptsTable({
         <select
           value={selected}
           onChange={(e) => router.push(`/receipts?month=${e.target.value}`)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-slate-900"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-emerald-500"
         >
           <option value="all">All months</option>
           {months.map((m) => (
@@ -273,7 +273,7 @@ export function ReceiptsTable({
         <select
           value={kind}
           onChange={(e) => setKind(e.target.value as KindFilter)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
         >
           {KINDS.map((k) => (
             <option key={k.value} value={k.value}>
@@ -285,7 +285,7 @@ export function ReceiptsTable({
         <select
           value={sentFilter}
           onChange={(e) => setSentFilter(e.target.value as "all" | "not" | "sent")}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
         >
           <option value="all">Sent &amp; not sent</option>
           <option value="not">Not sent yet</option>
@@ -295,7 +295,7 @@ export function ReceiptsTable({
         <select
           value={paidFilter}
           onChange={(e) => setPaidFilter(e.target.value as "all" | "unpaid" | "paid")}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
         >
           <option value="all">Paid &amp; unpaid</option>
           <option value="unpaid">Unpaid</option>
@@ -309,7 +309,7 @@ export function ReceiptsTable({
               e.target.value as "all" | "billback" | "not" | "client" | "vessel"
             )
           }
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
         >
           <option value="all">All bill-back</option>
           <option value="billback">Bill-back only</option>

@@ -31,7 +31,7 @@ export function CardForm() {
           <input
             name="nickname"
             placeholder="e.g. Republic Visa"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
         </label>
 
@@ -45,7 +45,7 @@ export function CardForm() {
             inputMode="numeric"
             maxLength={4}
             placeholder="1234"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
         </label>
 
@@ -56,7 +56,7 @@ export function CardForm() {
           <select
             name="card_type"
             defaultValue="personal"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           >
             <option value="personal">Personal card (reimbursable)</option>
             <option value="company">Company card (accounting only)</option>
@@ -73,7 +73,7 @@ export function CardForm() {
           <input
             name="notes"
             placeholder="Anything to remember"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           />
         </label>
       </div>
