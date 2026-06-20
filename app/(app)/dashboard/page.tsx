@@ -19,19 +19,21 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const monthKey = currentMonthKey();
 
-  // All receipts (excluding flagged duplicates). Outstanding/paid accumulate
-  // across months — they're about money owed/handled, not a single month.
-  const { data } = await supabase
-    .from("receipts")
-    .select("id, status, reimbursable, paid, payment_method, ttd_amount, month_key")
-    .is("duplicate_of", null);
+  // All receipts (excluding flagged duplicates) plus which are confirmed-matched
+  // to a statement (referenced). Outstanding/paid accumulate across months —
+  // they're about money owed/handled, not a single month. Fetched in parallel.
+  const [{ data }, { data: matched }] = await Promise.all([
+    supabase
+      .from("receipts")
+      .select("id, status, reimbursable, paid, payment_method, ttd_amount, month_key")
+      .is("duplicate_of", null),
+    supabase
+      .from("receipt_statement_matches")
+      .select("receipt_id")
+      .eq("confirmed", true),
+  ]);
   const rows = (data ?? []) as Row[];
 
-  // Which receipts are confirmed-matched to a statement (referenced)?
-  const { data: matched } = await supabase
-    .from("receipt_statement_matches")
-    .select("receipt_id")
-    .eq("confirmed", true);
   const referenced = new Set(
     (matched ?? []).map((m) => m.receipt_id).filter(Boolean) as string[]
   );

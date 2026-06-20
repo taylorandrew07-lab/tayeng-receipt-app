@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractDocument } from "@/lib/extraction/extract";
-import { classify, normalizeVendor } from "@/lib/classification/classify";
+import { classify } from "@/lib/classification/classify";
+import { duplicateKeys } from "@/lib/receipts/duplicates";
+import { resolveMediaType } from "@/lib/files/media-type";
 import { getApprovedUser, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "@/lib/auth/guard";
 import type { Card, Category, LearningRule } from "@/lib/types";
 
@@ -104,14 +106,12 @@ export async function POST(request: NextRequest) {
       fileName: file.file_name,
     });
   } catch (e) {
+    console.error("extraction failed:", e);
     await supabase
       .from("receipts")
       .update({ status: "needs_review", notes: "Automatic extraction failed." })
       .eq("id", receiptId);
-    return NextResponse.json(
-      { error: "Extraction failed", detail: String(e) },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: "Extraction failed" }, { status: 502 });
   }
 
   const [{ data: cards }, { data: categories }, { data: rules }, { data: settings }] =
@@ -133,19 +133,20 @@ export async function POST(request: NextRequest) {
   });
 
   // --- Duplicate detection ---------------------------------------------
-  // A receipt is a likely duplicate of an existing one if ANY hold:
-  //  - identical file name (same file re-uploaded), OR
-  //  - same vendor + same TTD amount + SAME DATE, OR
-  //  - same original amount + same card last 4 + SAME DATE.
-  // Including the date means two genuine same-amount purchases on different
-  // days are NOT flagged.
+  // A receipt is a likely duplicate of an existing one if they share any
+  // fingerprint key (see duplicateKeys). The earliest upload stays the original.
   let duplicateOf: string | null = null;
   {
-    const nv = normalizeVendor(result.vendor_name);
-    const ttd = result.ttd_amount != null ? Math.round(Number(result.ttd_amount) * 100) : null;
-    const amt = result.amount != null ? Math.round(Number(result.amount) * 100) : null;
-    const date = result.receipt_date;
-    const fn = (file.file_name ?? "").toLowerCase().trim();
+    const newKeys = new Set(
+      duplicateKeys({
+        receipt_date: result.receipt_date,
+        vendor_name: result.vendor_name,
+        ttd_amount: result.ttd_amount,
+        amount: result.amount,
+        card_last4: result.card_last4,
+        fileName: file.file_name,
+      })
+    );
 
     const { data: candidates } = await supabase
       .from("receipts")
@@ -163,25 +164,16 @@ export async function POST(request: NextRequest) {
         card_last4: string | null;
         receipt_files: { file_name: string }[];
       }[]
-    ).find((c) => {
-      const cv = normalizeVendor(c.vendor_name);
-      const cttd = c.ttd_amount != null ? Math.round(Number(c.ttd_amount) * 100) : null;
-      const camt = c.amount != null ? Math.round(Number(c.amount) * 100) : null;
-      const cfn = (c.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
-      if (fn && cfn && fn === cfn) return true;
-      if (nv && ttd != null && date && cv === nv && cttd === ttd && c.receipt_date === date)
-        return true;
-      if (
-        amt != null &&
-        result.card_last4 &&
-        date &&
-        camt === amt &&
-        c.card_last4 === result.card_last4 &&
-        c.receipt_date === date
-      )
-        return true;
-      return false;
-    });
+    ).find((c) =>
+      duplicateKeys({
+        receipt_date: c.receipt_date,
+        vendor_name: c.vendor_name,
+        ttd_amount: c.ttd_amount,
+        amount: c.amount,
+        card_last4: c.card_last4,
+        fileName: c.receipt_files?.[0]?.file_name ?? null,
+      }).some((k) => newKeys.has(k))
+    );
     if (match) duplicateOf = match.id;
   }
 
@@ -224,21 +216,4 @@ export async function POST(request: NextRequest) {
     duplicate: Boolean(duplicateOf),
     result,
   });
-}
-
-function resolveMediaType(mime: string | null, fileName: string): string {
-  if (mime && mime !== "application/octet-stream") return mime;
-  const ext = fileName.toLowerCase().split(".").pop() ?? "";
-  switch (ext) {
-    case "pdf":
-      return "application/pdf";
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    default:
-      return "image/jpeg";
-  }
 }

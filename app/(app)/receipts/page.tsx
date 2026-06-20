@@ -30,14 +30,18 @@ export default async function ReceiptsPage({
           ? currentMonthKey()
           : (months[0] ?? "all");
 
+  // Explicit columns (every field the table uses) so we never ship the heavy
+  // raw_extraction JSON blob down to the page.
   let query = supabase
     .from("receipts")
-    .select("*, categories(name), receipt_files(file_name)")
+    .select(
+      "id, user_id, receipt_date, month_key, vendor_name, vendor_id, category_id, doc_type, amount, currency, ttd_amount, tax_amount, payment_method, card_id, card_last4, reimbursable, status, confidence, notes, duplicate_of, not_duplicate, sent, sent_at, paid, paid_at, bill_back, bill_back_type, bill_back_name, bill_back_normalized, created_at, updated_at, categories(name), receipt_files(file_name)"
+    )
     .order("created_at", { ascending: false });
   if (selected !== "all") query = query.eq("month_key", selected);
 
   const { data } = await query;
-  const rows = (data ?? []) as ReceiptRow[];
+  const rows = (data ?? []) as unknown as ReceiptRow[];
 
   return (
     <div>

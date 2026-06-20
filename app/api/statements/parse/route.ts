@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { parseStatement } from "@/lib/extraction/parse-statement";
+import { resolveMediaType } from "@/lib/files/media-type";
 import { getApprovedUser, MAX_PDF_BYTES } from "@/lib/auth/guard";
 
 export const maxDuration = 60;
@@ -42,22 +43,15 @@ export async function POST(request: NextRequest) {
   if (blob.size > MAX_PDF_BYTES) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
   }
-  const name = (statement.file_name ?? "").toLowerCase();
-  const mediaType = name.endsWith(".pdf")
-    ? "application/pdf"
-    : name.endsWith(".png")
-      ? "image/png"
-      : "image/jpeg";
+  const mediaType = resolveMediaType(null, statement.file_name);
   const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
 
   let parsed;
   try {
     parsed = await parseStatement({ base64, mediaType });
   } catch (e) {
-    return NextResponse.json(
-      { error: "Parsing failed", detail: String(e) },
-      { status: 502 }
-    );
+    console.error("statement parsing failed:", e);
+    return NextResponse.json({ error: "Parsing failed" }, { status: 502 });
   }
 
   // Link to a known card by last 4, if any.

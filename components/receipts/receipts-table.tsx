@@ -14,7 +14,8 @@ import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
 
-export type ReceiptRow = Receipt & {
+// raw_extraction (a heavy JSON blob) is intentionally not fetched for the list.
+export type ReceiptRow = Omit<Receipt, "raw_extraction"> & {
   categories: { name: string } | null;
   receipt_files: { file_name: string }[];
 };

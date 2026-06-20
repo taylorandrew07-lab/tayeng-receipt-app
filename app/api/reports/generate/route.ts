@@ -1,18 +1,15 @@
 import { type NextRequest } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument, type ReportRow } from "@/lib/reports/report-document";
+import { appendReceiptDocuments } from "@/lib/reports/append-receipts";
 import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import { getApprovedUser } from "@/lib/auth/guard";
 import type { Receipt } from "@/lib/types";
 
 export const maxDuration = 60;
-
-// Caps so a single huge / many-page receipt can't blow the report's memory/time.
-const MAX_EMBED_BYTES = 25 * 1024 * 1024; // 25 MB per receipt file
-const MAX_PAGES_PER_RECEIPT = 20;
 
 type Row = Receipt & { categories: { name: string } | null };
 
@@ -102,105 +99,16 @@ export async function GET(request: NextRequest) {
   // 2) Merge the ACTUAL receipt documents onto the end with pdf-lib:
   //    PDF receipts have their pages copied in; image receipts get a full page.
   const merged = await PDFDocument.load(coverBytes);
-  const labelFont = await merged.embedFont(StandardFonts.Helvetica);
-  const A4: [number, number] = [595.28, 841.89];
-
-  const drawLabel = (
-    page: import("pdf-lib").PDFPage,
-    text: string
-  ) => {
-    const size = 9;
-    const w = labelFont.widthOfTextAtSize(text, size) + 8;
-    const y = page.getHeight() - 16;
-    page.drawRectangle({
-      x: 4,
-      y: y - 3,
-      width: w,
-      height: size + 6,
-      color: rgb(1, 1, 1),
-      opacity: 0.85,
-    });
-    page.drawText(text, { x: 8, y, size, font: labelFont, color: rgb(0.06, 0.09, 0.16) });
-  };
-
-  for (let i = 0; i < rowsData.length; i++) {
-    const r = rowsData[i];
-    const label = `Receipt #${i + 1} · ${r.vendor_name ?? "Unknown"} · ${
-      r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—"
-    }`;
-
-    const { data: file } = await supabase
-      .from("receipt_files")
-      .select("storage_path, mime_type, file_name")
-      .eq("receipt_id", r.id)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    try {
-      if (!file) {
-        const page = merged.addPage(A4);
-        drawLabel(page, `${label} — no file attached`);
-        continue;
-      }
-
-      const { data: blob } = await supabase.storage
-        .from("documents")
-        .download(file.storage_path);
-      if (!blob) {
-        const page = merged.addPage(A4);
-        drawLabel(page, `${label} — file unavailable`);
-        continue;
-      }
-
-      // Skip files too large to safely load into the serverless function.
-      if (blob.size > MAX_EMBED_BYTES) {
-        const page = merged.addPage(A4);
-        drawLabel(page, `${label} — file too large to include (open it in the app)`);
-        continue;
-      }
-
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      const name = (file.file_name ?? "").toLowerCase();
-      const mime = (file.mime_type ?? "").toLowerCase();
-      const isPng = mime.includes("png") || name.endsWith(".png");
-      const isJpg = mime.includes("jpeg") || /\.jpe?g$/.test(name);
-      const isPdf = mime.includes("pdf") || name.endsWith(".pdf");
-
-      if (isPdf) {
-        const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        // Cap pages per receipt so one huge PDF can't blow up the report.
-        const indices = src.getPageIndices().slice(0, MAX_PAGES_PER_RECEIPT);
-        const pages = await merged.copyPages(src, indices);
-        pages.forEach((p, idx) => {
-          merged.addPage(p);
-          if (idx === 0) drawLabel(p, label);
-        });
-      } else if (isJpg || isPng) {
-        const img = isPng ? await merged.embedPng(bytes) : await merged.embedJpg(bytes);
-        const page = merged.addPage(A4);
-        const margin = 28;
-        const maxW = A4[0] - margin * 2;
-        const maxH = A4[1] - margin * 2 - 20;
-        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-        const w = img.width * scale;
-        const h = img.height * scale;
-        page.drawImage(img, {
-          x: (A4[0] - w) / 2,
-          y: (A4[1] - h) / 2 - 10,
-          width: w,
-          height: h,
-        });
-        drawLabel(page, label);
-      } else {
-        const page = merged.addPage(A4);
-        drawLabel(page, `${label} — unsupported file type`);
-      }
-    } catch {
-      const page = merged.addPage(A4);
-      drawLabel(page, `${label} — could not be embedded`);
-    }
-  }
+  await appendReceiptDocuments(
+    merged,
+    supabase,
+    rowsData.map((r, i) => ({
+      receiptId: r.id,
+      label: `Receipt #${i + 1} · ${r.vendor_name ?? "Unknown"} · ${
+        r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—"
+      }`,
+    }))
+  );
 
   const pdf = await merged.save();
 

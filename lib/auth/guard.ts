@@ -1,19 +1,28 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { User } from "@supabase/supabase-js";
+
+/** The minimal identity our API routes need (id + email). */
+export type ApprovedUser = { id: string; email: string | null };
 
 /**
  * Returns the signed-in user only if their account is approved. API routes use
  * this so unapproved (or signed-out) users can't trigger work, on top of the
  * RLS approval enforcement at the database layer.
+ *
+ * Uses getClaims(), which verifies the JWT locally (asymmetric keys) instead of
+ * making a network round-trip to the Auth server on every request.
  */
 export async function getApprovedUser(
   supabase: SupabaseClient
-): Promise<{ user: User | null; approved: boolean }> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { user: null, approved: false };
+): Promise<{ user: ApprovedUser | null; approved: boolean }> {
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
+  if (!claims?.sub) return { user: null, approved: false };
+
+  const user: ApprovedUser = {
+    id: claims.sub,
+    email: typeof claims.email === "string" ? claims.email : null,
+  };
 
   const { data } = await supabase
     .from("profiles")

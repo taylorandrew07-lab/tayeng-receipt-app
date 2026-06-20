@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeVendor } from "@/lib/classification/classify";
+import { duplicateKeys } from "@/lib/receipts/duplicates";
 import type { PaymentMethod } from "@/lib/types";
 
 export type ReceiptFormState = { error?: string } | undefined;
@@ -201,25 +202,21 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     receipt_files: { file_name: string }[];
   }[];
 
-  // Group ids by each duplicate key (rows are in upload order). Amount-based
-  // keys include the DATE so two legitimate same-amount purchases on different
-  // days are NOT treated as duplicates; an identical file name always is.
+  // Group ids by each duplicate key (rows are in upload order).
   const groups = new Map<string, string[]>();
-  const add = (key: string, id: string) => {
-    if (!key) return;
-    const arr = groups.get(key) ?? [];
-    arr.push(id);
-    groups.set(key, arr);
-  };
   for (const r of rows) {
-    const nv = normalizeVendor(r.vendor_name);
-    const ttd = r.ttd_amount != null ? Math.round(Number(r.ttd_amount) * 100) : null;
-    const amt = r.amount != null ? Math.round(Number(r.amount) * 100) : null;
-    const d = r.receipt_date ?? "";
-    const fn = (r.receipt_files?.[0]?.file_name ?? "").toLowerCase().trim();
-    if (fn) add(`f:${fn}`, r.id);
-    if (nv && ttd != null && d) add(`v:${nv}|${ttd}|${d}`, r.id);
-    if (amt != null && r.card_last4 && d) add(`a:${amt}|${r.card_last4}|${d}`, r.id);
+    for (const key of duplicateKeys({
+      receipt_date: r.receipt_date,
+      vendor_name: r.vendor_name,
+      ttd_amount: r.ttd_amount,
+      amount: r.amount,
+      card_last4: r.card_last4,
+      fileName: r.receipt_files?.[0]?.file_name ?? null,
+    })) {
+      const arr = groups.get(key) ?? [];
+      arr.push(r.id);
+      groups.set(key, arr);
+    }
   }
 
   // dupId -> original (earliest) id
@@ -267,10 +264,6 @@ export async function setReceiptsSent(ids: string[], sent: boolean): Promise<voi
   revalidatePath("/receipts");
 }
 
-/**
- * Marks a receipt as NOT a duplicate: clears the flag and remembers the
- * decision so the auto-detector never re-flags it.
- */
 /**
  * Marks receipts paid / unpaid. Paid reimbursables drop off the dashboard's
  * outstanding total (the money has been reimbursed).
