@@ -165,18 +165,23 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
       } = await supabase.auth.getUser();
       if (!user || cancelled) return;
 
-      // Only items older than 90s — avoids racing receipts being processed right now.
-      const cutoff = new Date(Date.now() - 90_000).toISOString();
+      // Resume items older than 90s (avoids racing receipts processing right now).
+      const resumeCutoff = new Date(Date.now() - 90_000).toISOString();
+      // Only treat a file-less receipt as a true orphan after 30 minutes — a slow
+      // mobile upload can legitimately sit between the receipt insert and the
+      // receipt_files insert, and must NOT be deleted by another tab.
+      const orphanCutoff = Date.now() - 30 * 60_000;
       const { data: stuck } = await supabase
         .from("receipts")
         .select("id, created_at, receipt_files(id, file_name)")
         .eq("status", "processing")
-        .lt("created_at", cutoff);
+        .lt("created_at", resumeCutoff);
       if (cancelled || !stuck || stuck.length === 0) return;
 
       const resumeItems: QueueItem[] = [];
       for (const r of stuck as {
         id: string;
+        created_at: string;
         receipt_files: { id: string; file_name: string }[];
       }[]) {
         const file = r.receipt_files?.[0];
@@ -187,8 +192,8 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
             status: "queued",
             receiptId: r.id,
           });
-        } else {
-          // Orphaned receipt (upload never completed) — remove it.
+        } else if (Date.parse(r.created_at) < orphanCutoff) {
+          // File-less for 30+ minutes — the upload genuinely never completed.
           await supabase.from("receipts").delete().eq("id", r.id);
         }
       }

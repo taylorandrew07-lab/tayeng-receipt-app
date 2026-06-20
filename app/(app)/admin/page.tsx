@@ -26,6 +26,7 @@ export default async function AdminPage() {
   if (!me || (me.role !== "admin" && me.role !== "super_admin")) {
     redirect("/dashboard");
   }
+  const isSuper = me.role === "super_admin";
 
   // Profiles (admin RLS lets us read all) + auth emails (service role).
   const { data: profileData } = await supabase
@@ -115,25 +116,31 @@ export default async function AdminPage() {
               >
                 {p.role === "user" ? "User" : "Admin"}
               </span>
-              {p.id !== user.id && (
+              {/* Only super-admins change roles; non-super admins may only
+                  remove plain users. A super_admin row is never editable here. */}
+              {p.id !== user.id && p.role !== "super_admin" && (
                 <>
-                  <form action={setUserRole}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <input
-                      type="hidden"
-                      name="role"
-                      value={p.role === "user" ? "admin" : "user"}
-                    />
-                    <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
-                      Make {p.role === "user" ? "admin" : "user"}
-                    </button>
-                  </form>
-                  <form action={removeUser}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-400 hover:bg-red-50 hover:text-red-700">
-                      Remove
-                    </button>
-                  </form>
+                  {isSuper && (
+                    <form action={setUserRole}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <input
+                        type="hidden"
+                        name="role"
+                        value={p.role === "user" ? "admin" : "user"}
+                      />
+                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+                        Make {p.role === "user" ? "admin" : "user"}
+                      </button>
+                    </form>
+                  )}
+                  {(isSuper || p.role === "user") && (
+                    <form action={removeUser}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-400 hover:bg-red-50 hover:text-red-700">
+                        Remove
+                      </button>
+                    </form>
+                  )}
                 </>
               )}
             </div>

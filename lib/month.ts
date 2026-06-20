@@ -1,9 +1,18 @@
 // Month bucket helpers. A "month_key" is a 'YYYY-MM' string used to group
 // receipts into the monthly workspace.
 
+// Business timezone — the monthly workspace is bucketed in local Trinidad time,
+// not the UTC server clock, so late-evening month-end uploads land correctly.
+const TZ = "America/Port_of_Spain";
+
 export function monthKeyOf(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year")?.value ?? "0000";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
   return `${y}-${m}`;
 }
 

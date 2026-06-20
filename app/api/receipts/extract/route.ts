@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   // Load the receipt (RLS scopes to this user) and its primary file.
   const { data: receipt } = await supabase
     .from("receipts")
-    .select("id")
+    .select("id, created_at")
     .eq("id", receiptId)
     .single();
   if (!receipt) {
@@ -128,6 +128,8 @@ export async function POST(request: NextRequest) {
     categories: (categories ?? []) as Category[],
     rules: (rules ?? []) as LearningRule[],
     usdToTtdRate: Number(settings?.usd_to_ttd_rate ?? 6.8),
+    // Bucket by the upload time (handles auto-resume days later correctly).
+    uploadedAt: new Date(receipt.created_at),
   });
 
   // --- Duplicate detection ---------------------------------------------

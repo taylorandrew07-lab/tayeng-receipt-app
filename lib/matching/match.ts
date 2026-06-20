@@ -61,8 +61,9 @@ function dateScore(diff: number, tolDays: number): number {
 }
 
 function vendorScore(vendor: string | null, description: string | null): number {
-  const a = new Set(normalizeVendor(vendor).split(" ").filter((t) => t.length >= 3));
-  const b = new Set(normalizeVendor(description).split(" ").filter((t) => t.length >= 3));
+  // Keep 2+ char tokens so short T&T vendors (BP, NP, A&W) still contribute.
+  const a = new Set(normalizeVendor(vendor).split(" ").filter((t) => t.length >= 2));
+  const b = new Set(normalizeVendor(description).split(" ").filter((t) => t.length >= 2));
   if (a.size === 0 || b.size === 0) return 0;
   let overlap = 0;
   for (const t of a) if (b.has(t)) overlap++;

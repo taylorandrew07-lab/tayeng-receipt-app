@@ -81,9 +81,37 @@ export async function POST(request: NextRequest) {
     })
     .eq("id", statementId);
 
-  // Re-parse is idempotent: clear prior transactions, insert fresh ones.
+  // Guard re-parse: if this statement already has CONFIRMED receipt matches,
+  // re-parsing would cascade-delete that reconciliation work. Refuse instead.
+  const { data: existingTxns } = await supabase
+    .from("statement_transactions")
+    .select("id")
+    .eq("statement_id", statementId);
+  const existingIds = (existingTxns ?? []).map((t) => t.id);
+  if (existingIds.length > 0) {
+    const { count: confirmedCount } = await supabase
+      .from("receipt_statement_matches")
+      .select("id", { count: "exact", head: true })
+      .in("statement_transaction_id", existingIds)
+      .eq("confirmed", true);
+    if ((confirmedCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          ok: true,
+          count: existingIds.length,
+          message: "Kept existing transactions — this statement has confirmed matches.",
+        },
+        { status: 200 }
+      );
+    }
+  }
+
+  // Re-parse is idempotent (no confirmed matches): clear prior, insert fresh.
   await supabase.from("statement_transactions").delete().eq("statement_id", statementId);
 
+  const fallbackLast4 = /^\d{4}$/.test(parsed.card_last4 ?? "")
+    ? parsed.card_last4
+    : null;
   const txns = parsed.transactions
     .filter((t) => t.amount != null)
     .map((t) => ({
@@ -93,9 +121,7 @@ export async function POST(request: NextRequest) {
       description: t.description,
       amount: t.amount,
       currency: (t.currency ?? "TTD").toUpperCase(),
-      card_last4: /^\d{4}$/.test(t.card_last4 ?? "")
-        ? t.card_last4
-        : parsed.card_last4,
+      card_last4: /^\d{4}$/.test(t.card_last4 ?? "") ? t.card_last4 : fallbackLast4,
     }));
 
   if (txns.length > 0) {

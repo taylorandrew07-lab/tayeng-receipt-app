@@ -123,7 +123,11 @@ export function classify(input: ClassifyInput): ClassifyResult {
   if (amount != null) {
     if (currency === "TTD") ttd_amount = round2(amount);
     else if (currency === "USD") ttd_amount = round2(amount * usdToTtdRate);
-    else ttd_amount = round2(amount); // unknown currency: best effort
+    else {
+      // Unknown currency — don't guess a TTD figure that would distort totals.
+      ttd_amount = null;
+      reasons.push(`Currency ${currency} not supported — set the TTD amount manually`);
+    }
   } else {
     reasons.push("Amount could not be read");
   }

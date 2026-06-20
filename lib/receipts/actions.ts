@@ -148,16 +148,19 @@ export async function deleteReceipts(ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
   const supabase = await createClient();
 
+  // Capture paths, delete the rows (cascades receipt_files), then best-effort
+  // remove the blobs — surfacing (not swallowing) any storage failure.
   const { data: files } = await supabase
     .from("receipt_files")
     .select("storage_path")
     .in("receipt_id", ids);
+  await supabase.from("receipts").delete().in("id", ids);
   if (files && files.length > 0) {
-    await supabase.storage
+    const { error: rmErr } = await supabase.storage
       .from("documents")
       .remove(files.map((f) => f.storage_path));
+    if (rmErr) console.error("storage cleanup failed (bulk delete):", rmErr.message);
   }
-  await supabase.from("receipts").delete().in("id", ids);
 
   revalidatePath("/receipts");
   revalidatePath("/review");
@@ -302,17 +305,17 @@ export async function deleteReceipt(formData: FormData): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
 
-  // Remove stored files first (RLS scopes to the user's folder).
   const { data: files } = await supabase
     .from("receipt_files")
     .select("storage_path")
     .eq("receipt_id", id);
+  await supabase.from("receipts").delete().eq("id", id);
   if (files && files.length > 0) {
-    await supabase.storage
+    const { error: rmErr } = await supabase.storage
       .from("documents")
       .remove(files.map((f) => f.storage_path));
+    if (rmErr) console.error("storage cleanup failed (delete receipt):", rmErr.message);
   }
-  await supabase.from("receipts").delete().eq("id", id);
 
   revalidatePath("/receipts");
   revalidatePath("/review");
