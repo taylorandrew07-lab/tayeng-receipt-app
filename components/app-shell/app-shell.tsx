@@ -6,6 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { NAV_GROUPS } from "./nav";
 import { signout } from "@/lib/auth/actions";
+import { Toaster } from "@/components/toast";
 
 export function AppShell({
   children,
@@ -129,6 +130,7 @@ export function AppShell({
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }

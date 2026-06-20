@@ -33,19 +33,19 @@ export default async function ReviewPage() {
           {rows.map((r) => (
             <li key={r.id}>
               <Link
-                href={`/receipts/${r.id}`}
+                href={`/receipts/${r.id}?from=review`}
                 className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-amber-300 hover:shadow"
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-medium text-slate-900">
                       {r.vendor_name ?? "Unknown vendor"}
-                      <span className="ml-2 text-sm font-normal text-slate-400">
+                      <span className="ml-2 text-sm font-normal text-slate-500">
                         {r.receipt_date ?? "no date"}
                       </span>
                     </p>
                     {r.receipt_files?.[0]?.file_name && (
-                      <p className="mt-0.5 truncate text-xs text-slate-400">
+                      <p className="mt-0.5 truncate text-xs text-slate-500">
                         📎 {r.receipt_files[0].file_name}
                       </p>
                     )}
@@ -57,7 +57,7 @@ export default async function ReviewPage() {
                     <p className="font-semibold text-slate-900">
                       {r.ttd_amount != null ? formatTTD(r.ttd_amount) : "—"}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-500">
                       {PAYMENT_LABEL[r.payment_method]}
                     </p>
                   </div>

@@ -12,6 +12,7 @@ import {
 } from "@/lib/receipts/actions";
 import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
 import { formatMonthKey, formatTTD } from "@/lib/month";
+import { toast } from "@/components/toast";
 import type { Receipt } from "@/lib/types";
 
 // raw_extraction (a heavy JSON blob) is intentionally not fetched for the list.
@@ -222,10 +223,11 @@ export function ReceiptsTable({
       const res = await findDuplicates();
       router.refresh();
       setDuplicatesOnly(res.flagged > 0 || counts.duplicates > 0);
-      window.alert(
+      toast(
         res.flagged > 0
           ? `Flagged ${res.flagged} possible duplicate${res.flagged === 1 ? "" : "s"}. They're shown now and marked "Duplicate".`
-          : "No new duplicates found."
+          : "No new duplicates found.",
+        res.flagged > 0 ? "success" : "info"
       );
     });
   }

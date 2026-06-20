@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatMonthKey } from "@/lib/month";
+import { toast } from "@/components/toast";
 
 const TYPES = [
   { value: "reimbursable", label: "Reimbursable (personal + cash)" },
@@ -34,7 +35,7 @@ export function ReportLauncher({ months }: { months: string[] }) {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Sorry, the report could not be generated. Please try again.");
+      toast("Sorry, the report could not be generated. Please try again.", "error");
     } finally {
       setDownloading(false);
     }

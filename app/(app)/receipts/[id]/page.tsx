@@ -3,15 +3,22 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { ReceiptEditor } from "@/components/receipts/receipt-editor";
+import { DocumentViewer } from "@/components/receipts/document-viewer";
 import { dismissDuplicate } from "@/lib/receipts/actions";
 import type { Card, Category, Receipt } from "@/lib/types";
 
 export default async function ReceiptEditPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { id } = await params;
+  const { from } = await searchParams;
+  // Opened from the review queue? Send the user back there after saving.
+  const cameFromReview = from === "review";
+  const backHref = cameFromReview ? "/review" : "/receipts";
   const supabase = await createClient();
 
   const { data: receipt } = await supabase
@@ -21,17 +28,20 @@ export default async function ReceiptEditPage({
     .single();
   if (!receipt) notFound();
 
-  const [{ data: file }, { data: cards }, { data: categories }] = await Promise.all([
-    supabase
-      .from("receipt_files")
-      .select("storage_path, mime_type, file_name")
-      .eq("receipt_id", id)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
-    supabase.from("cards").select("*").order("nickname"),
-    supabase.from("categories").select("*").order("name"),
-  ]);
+  const [{ data: file }, { data: cards }, { data: categories }, { data: settings }] =
+    await Promise.all([
+      supabase
+        .from("receipt_files")
+        .select("storage_path, mime_type, file_name")
+        .eq("receipt_id", id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from("cards").select("*").order("nickname"),
+      supabase.from("categories").select("*").order("name"),
+      supabase.from("user_settings").select("usd_to_ttd_rate").single(),
+    ]);
+  const usdToTtdRate = Number(settings?.usd_to_ttd_rate ?? 6.8);
 
   let fileUrl: string | null = null;
   if (file?.storage_path) {
@@ -49,8 +59,8 @@ export default async function ReceiptEditPage({
         title="Review receipt"
         subtitle="Confirm or correct the details. Your changes are saved as rules for similar receipts."
         action={
-          <Link href="/receipts" className="text-sm font-medium text-slate-600 underline">
-            ← Back
+          <Link href={backHref} className="text-sm font-medium text-slate-600 underline">
+            ← Back{cameFromReview ? " to review" : ""}
           </Link>
         }
       />
@@ -77,38 +87,12 @@ export default async function ReceiptEditPage({
             receipt={receipt as Receipt}
             cards={(cards ?? []) as Card[]}
             categories={(categories ?? []) as Category[]}
+            usdToTtdRate={usdToTtdRate}
+            redirectTo={backHref}
           />
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-700">Original document</p>
-          {file?.file_name && (
-            <p className="mb-3 mt-0.5 truncate text-xs text-slate-400">
-              📎 {file.file_name}
-            </p>
-          )}
-          {!fileUrl ? (
-            <p className="text-sm text-slate-400">No file attached.</p>
-          ) : isPdf ? (
-            <a
-              href={fileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              📄 Open PDF
-            </a>
-          ) : (
-            <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={fileUrl}
-                alt="Receipt"
-                className="w-full rounded-lg border border-slate-200"
-              />
-            </a>
-          )}
-        </div>
+        <DocumentViewer fileUrl={fileUrl} fileName={file?.file_name ?? null} isPdf={isPdf} />
       </div>
     </div>
   );

@@ -17,10 +17,14 @@ export function ReceiptEditor({
   receipt,
   cards,
   categories,
+  usdToTtdRate = 6.8,
+  redirectTo = "/receipts",
 }: {
   receipt: Receipt;
   cards: Card[];
   categories: Category[];
+  usdToTtdRate?: number;
+  redirectTo?: string;
 }) {
   const [state, action, pending] = useActionState<ReceiptFormState, FormData>(
     saveReceipt,
@@ -29,6 +33,20 @@ export function ReceiptEditor({
   const [payment, setPayment] = useState<PaymentMethod>(receipt.payment_method);
   const reimbursable = payment !== "company_card";
   const [cardLast4, setCardLast4] = useState(receipt.card_last4 ?? "");
+  const [currency, setCurrency] = useState(receipt.currency ?? "TTD");
+  const [amount, setAmount] = useState(
+    receipt.amount != null ? String(receipt.amount) : ""
+  );
+  const [ttdAmount, setTtdAmount] = useState(
+    receipt.ttd_amount != null ? String(receipt.ttd_amount) : ""
+  );
+  // When the receipt is in a foreign currency, offer a one-tap TTD conversion.
+  const amountNum = Number(amount);
+  const showConvert =
+    currency.trim().toUpperCase() === "USD" &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0;
+  const suggestedTtd = showConvert ? (amountNum * usdToTtdRate).toFixed(2) : "";
   const [billBack, setBillBack] = useState(receipt.bill_back);
   const [billBackType, setBillBackType] = useState<"client" | "vessel">(
     receipt.bill_back_type ?? "client"
@@ -39,6 +57,7 @@ export function ReceiptEditor({
   return (
     <form action={action} className="space-y-5">
       <input type="hidden" name="id" value={receipt.id} />
+      <input type="hidden" name="redirect_to" value={redirectTo} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Vendor">
@@ -111,7 +130,8 @@ export function ReceiptEditor({
         <Field label="Currency">
           <input
             name="currency"
-            defaultValue={receipt.currency ?? "TTD"}
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
             className={inputCls}
           />
         </Field>
@@ -119,7 +139,8 @@ export function ReceiptEditor({
           <input
             name="amount"
             inputMode="decimal"
-            defaultValue={receipt.amount != null ? String(receipt.amount) : ""}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
             className={inputCls}
           />
         </Field>
@@ -128,9 +149,19 @@ export function ReceiptEditor({
           <input
             name="ttd_amount"
             inputMode="decimal"
-            defaultValue={receipt.ttd_amount != null ? String(receipt.ttd_amount) : ""}
+            value={ttdAmount}
+            onChange={(e) => setTtdAmount(e.target.value)}
             className={inputCls}
           />
+          {showConvert && (
+            <button
+              type="button"
+              onClick={() => setTtdAmount(suggestedTtd)}
+              className="mt-1 text-xs font-medium text-emerald-700 hover:underline"
+            >
+              ≈ TTD {suggestedTtd} at {usdToTtdRate.toFixed(2)} · tap to use
+            </button>
+          )}
         </Field>
         <Field label="Tax / VAT">
           <input
@@ -256,7 +287,7 @@ export function ReceiptEditor({
             if (!window.confirm("Delete this receipt? This cannot be undone."))
               e.preventDefault();
           }}
-          className="text-sm text-slate-400 hover:text-red-700"
+          className="text-sm text-slate-500 hover:text-red-700"
         >
           Delete receipt
         </button>

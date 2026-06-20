@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import Link from "next/link";
 import { useUploadQueue, type QueueItem } from "@/components/upload/upload-queue";
+import { toast } from "@/components/toast";
 
 // Only formats we can both read AND embed in the PDF report.
 const ACCEPT = "image/jpeg,image/png,application/pdf";
@@ -31,9 +32,10 @@ export function Uploader() {
     const ok = files.filter(isSupported);
     const skipped = files.length - ok.length;
     if (skipped > 0) {
-      window.alert(
+      toast(
         `${skipped} file${skipped === 1 ? "" : "s"} skipped — only JPG, PNG, and PDF are supported. ` +
-          `(On iPhone, set Camera → Formats → "Most Compatible" to take JPGs.)`
+          `(On iPhone, set Camera → Formats → "Most Compatible" to take JPGs.)`,
+        "error"
       );
     }
     if (ok.length > 0) enqueueFiles(ok);

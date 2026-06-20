@@ -137,7 +137,10 @@ export async function saveReceipt(
 
   revalidatePath("/receipts");
   revalidatePath("/review");
-  redirect("/receipts");
+  // When the receipt was opened from the review queue, go back there so the
+  // user can clear the next item; otherwise return to the full receipts list.
+  const redirectTo = String(formData.get("redirect_to") ?? "");
+  redirect(redirectTo === "/review" ? "/review" : "/receipts");
 }
 
 /**

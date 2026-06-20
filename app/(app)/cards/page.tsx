@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { CardForm } from "@/components/cards/card-form";
+import { DeleteButton } from "@/components/delete-button";
 import { deleteCard } from "@/lib/cards/actions";
 import type { Card, CardType } from "@/lib/types";
 
@@ -75,15 +76,12 @@ export default async function CardsPage() {
                 </div>
               </div>
 
-              <form action={deleteCard}>
-                <input type="hidden" name="id" value={card.id} />
-                <button
-                  type="submit"
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-red-50 hover:text-red-700"
-                >
-                  Remove
-                </button>
-              </form>
+              <DeleteButton
+                action={deleteCard}
+                id={card.id}
+                label="Remove"
+                confirmText={`Remove the card "${card.nickname}"? Receipts already classified to it are not affected.`}
+              />
             </li>
           ))}
         </ul>
