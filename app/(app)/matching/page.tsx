@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { runMatching, confirmMatch, rejectMatch } from "@/lib/matching/actions";
+import { AttachReceipt } from "@/components/matching/attach-receipt";
 import { formatTTD } from "@/lib/month";
 import type { Receipt, Statement, StatementTransaction } from "@/lib/types";
 
@@ -60,7 +61,40 @@ export default async function MatchingPage({
   );
   const confirmed = matches.filter((m) => m.confirmed);
   const possible = matches.filter((m) => !m.confirmed);
-  const missing = txns.filter((t) => !matchedTxnIds.has(t.id));
+
+  // A charge carried on several overlapping statements has ONE receipt, attached
+  // to whichever copy was matched first. Looking only at this statement's copy
+  // reports a covered charge as "missing" — so resolve at the charge level.
+  const chargeIds = [...new Set(txns.map((t) => t.charge_id).filter(Boolean) as string[])];
+  const { data: chargeMatchData } = chargeIds.length
+    ? await supabase
+        .from("receipt_statement_matches")
+        .select("charge_id, receipt_id, receipts(vendor_name, ttd_amount, receipt_date, sent)")
+        .in("charge_id", chargeIds)
+        .eq("confirmed", true)
+    : { data: [] };
+  const coverByCharge = new Map(
+    ((chargeMatchData ?? []) as unknown as {
+      charge_id: string;
+      receipt_id: string;
+      receipts: {
+        vendor_name: string | null;
+        ttd_amount: number | null;
+        receipt_date: string | null;
+        sent: boolean;
+      } | null;
+    }[])
+      .filter((m) => m.charge_id)
+      .map((m) => [m.charge_id, m])
+  );
+
+  const isCovered = (t: StatementTransaction) =>
+    Boolean(t.charge_id && coverByCharge.has(t.charge_id));
+
+  // Covered by a receipt attached to another statement's copy of the charge.
+  const coveredElsewhere = txns.filter((t) => !matchedTxnIds.has(t.id) && isCovered(t));
+  // Genuinely has no receipt anywhere.
+  const missing = txns.filter((t) => !matchedTxnIds.has(t.id) && !isCovered(t));
 
   // Receipts with no confirmed match anywhere = receipts lacking a statement line.
   const { data: confirmedAll } = await supabase
@@ -237,6 +271,42 @@ export default async function MatchingPage({
         </Section>
       )}
 
+      {/* Already covered via another statement's copy of the same charge */}
+      {coveredElsewhere.length > 0 && (
+        <Section title="Already covered — receipt is on another statement">
+          <p className="mb-3 text-sm text-slate-500">
+            These charges also appear on a different statement, where the receipt is already
+            attached. Nothing to do — they are not missing.
+          </p>
+          <ul className="space-y-2">
+            {coveredElsewhere.map((t) => {
+              const cover = t.charge_id ? coverByCharge.get(t.charge_id) : undefined;
+              return (
+                <li
+                  key={t.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/50 px-4 py-3 text-sm"
+                >
+                  <span className="text-slate-900">{t.description ?? "—"}</span>
+                  <span className="flex items-center gap-3">
+                    <Link
+                      href={cover?.receipt_id ? `/receipts/${cover.receipt_id}` : "#"}
+                      className="text-xs font-medium text-green-800 underline"
+                    >
+                      {cover?.receipts?.vendor_name ?? "Receipt"}
+                      {cover?.receipts?.sent ? " · already sent" : ""} ↗
+                    </Link>
+                    <span className="whitespace-nowrap text-slate-500">
+                      {t.txn_date ?? "—"} ·{" "}
+                      {t.amount != null ? formatTTD(Number(t.amount)) : "—"}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
+
       {/* Missing receipts */}
       {missing.length > 0 && (
         <Section title="Statement transactions with no receipt">
@@ -244,13 +314,22 @@ export default async function MatchingPage({
             {missing.map((t) => (
               <li
                 key={t.id}
-                className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
+                className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
               >
-                <span className="text-slate-900">{t.description ?? "—"}</span>
-                <span className="text-slate-500">
-                  {t.txn_date ?? "—"} ·{" "}
-                  {t.amount != null ? formatTTD(Number(t.amount)) : "—"}
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-slate-900">{t.description ?? "—"}</span>
+                  <span className="flex items-center gap-3">
+                    <span className="whitespace-nowrap text-slate-500">
+                      {t.txn_date ?? "—"} ·{" "}
+                      {t.amount != null ? formatTTD(Number(t.amount)) : "—"}
+                    </span>
+                    <AttachReceipt
+                      txnId={t.id}
+                      txnAmount={t.amount != null ? Number(t.amount) : null}
+                      receipts={unmatchedReceipts}
+                    />
+                  </span>
+                </div>
               </li>
             ))}
           </ul>

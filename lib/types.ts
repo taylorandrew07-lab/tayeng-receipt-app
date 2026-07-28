@@ -140,6 +140,8 @@ export type StatementTransaction = {
   currency: string;
   card_last4: string | null;
   is_matched: boolean;
+  /** Cross-statement identity of the real-world charge (migration 0015). */
+  charge_id: string | null;
   created_at: string;
 };
 

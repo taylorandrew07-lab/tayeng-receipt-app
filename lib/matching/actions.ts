@@ -95,6 +95,87 @@ export async function runMatching(formData: FormData): Promise<void> {
   revalidatePath("/matching");
 }
 
+export type AttachResult = { ok: boolean; message: string } | null;
+
+/**
+ * Manually attach a receipt the matcher did not find. Attaches to the CHARGE,
+ * not to one statement's copy of it, so the receipt counts for every statement
+ * that carried the same charge.
+ */
+export async function attachReceiptToCharge(
+  _prev: AttachResult,
+  formData: FormData
+): Promise<AttachResult> {
+  const txnId = String(formData.get("txn_id") ?? "");
+  const receiptId = String(formData.get("receipt_id") ?? "");
+  if (!txnId || !receiptId) return { ok: false, message: "Pick a receipt first." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "You are signed out. Please sign in again." };
+
+  const { data: txn, error: txnError } = await supabase
+    .from("statement_transactions")
+    .select("id, charge_id, description, amount")
+    .eq("id", txnId)
+    .single();
+  if (txnError || !txn) return { ok: false, message: "That statement line could not be found." };
+  if (!txn.charge_id)
+    return { ok: false, message: "That line has no charge record yet. Re-run matching and try again." };
+
+  // Is this charge already covered? unique(charge_id) where confirmed would
+  // reject the insert anyway; catching it here gives a usable message.
+  const { data: existing } = await supabase
+    .from("receipt_statement_matches")
+    .select("id, receipt_id, receipts(vendor_name)")
+    .eq("charge_id", txn.charge_id)
+    .eq("confirmed", true)
+    .maybeSingle();
+  if (existing && existing.receipt_id !== receiptId) {
+    type VendorRel = { vendor_name: string | null };
+    const rel = existing.receipts as unknown as VendorRel | VendorRel[] | null;
+    const who =
+      (Array.isArray(rel) ? rel[0]?.vendor_name : rel?.vendor_name) ?? "another receipt";
+    return {
+      ok: false,
+      message: `This charge is already covered by ${who}. Unmatch that first if it is wrong.`,
+    };
+  }
+
+  // And is the receipt already spoken for elsewhere? (0013's unique index.)
+  const { data: taken } = await supabase
+    .from("receipt_statement_matches")
+    .select("id, charge_id")
+    .eq("receipt_id", receiptId)
+    .eq("confirmed", true)
+    .maybeSingle();
+  if (taken && taken.charge_id !== txn.charge_id)
+    return {
+      ok: false,
+      message: "That receipt is already attached to a different charge.",
+    };
+
+  const { error } = await supabase.from("receipt_statement_matches").upsert(
+    {
+      user_id: user.id,
+      receipt_id: receiptId,
+      statement_transaction_id: txnId,
+      charge_id: txn.charge_id,
+      status: "matched",
+      confidence: 100, // a person chose this
+      confirmed: true,
+      rejected_at: null,
+    },
+    { onConflict: "receipt_id,charge_id" }
+  );
+  if (error) return { ok: false, message: `Could not attach: ${error.message}` };
+
+  revalidatePath("/matching");
+  return { ok: true, message: "Receipt attached." };
+}
+
 export async function confirmMatch(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   const txnId = String(formData.get("txn_id") ?? "");
