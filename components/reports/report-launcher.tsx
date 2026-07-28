@@ -14,7 +14,12 @@ const TYPES = [
 export function ReportLauncher({ months }: { months: string[] }) {
   const [month, setMonth] = useState(months[0]);
   const [type, setType] = useState("reimbursable");
+  const [scope, setScope] = useState("outstanding");
   const [downloading, setDownloading] = useState(false);
+
+  // A reimbursement claim is "what am I still owed", not "what happened in
+  // July" — an unpaid June receipt still belongs in today's claim.
+  const outstanding = type === "reimbursable" && scope === "outstanding";
 
   async function download() {
     setDownloading(true);
@@ -22,14 +27,18 @@ export function ReportLauncher({ months }: { months: string[] }) {
       const endpoint =
         type === "billback"
           ? `/api/reports/billback?month=${month}`
-          : `/api/reports/generate?month=${month}&type=${type}`;
+          : outstanding
+            ? `/api/reports/generate?type=reimbursable&scope=outstanding`
+            : `/api/reports/generate?month=${month}&type=${type}&scope=month`;
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error("Failed to generate report");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${type}-report-${month}.pdf`;
+      a.download = outstanding
+        ? `reimbursable-outstanding-${new Date().toISOString().slice(0, 10)}.pdf`
+        : `${type}-report-${month}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -59,7 +68,21 @@ export function ReportLauncher({ months }: { months: string[] }) {
           </select>
         </label>
 
-        <label className="block">
+        {type === "reimbursable" && (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-slate-700">Covering</span>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="outstanding">Everything still unpaid</option>
+              <option value="month">One month only</option>
+            </select>
+          </label>
+        )}
+
+        <label className={`block ${outstanding ? "hidden" : ""}`}>
           <span className="mb-1 block text-sm font-medium text-slate-700">Month</span>
           <select
             value={month}
@@ -84,8 +107,9 @@ export function ReportLauncher({ months }: { months: string[] }) {
         </button>
       </div>
       <p className="mt-3 text-xs text-slate-400">
-        The report includes a summary, a detailed table, and copies of your receipt
-        images, each numbered to match the table.
+        {outstanding
+          ? "Every reimbursable receipt you have not yet been paid for, whatever month it came from — anything already marked paid is left out. Includes a summary, a detailed table, and copies of your receipts, each numbered to match the table."
+          : "The report includes a summary, a detailed table, and copies of your receipt images, each numbered to match the table."}
       </p>
     </div>
   );

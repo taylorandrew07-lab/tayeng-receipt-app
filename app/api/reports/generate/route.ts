@@ -24,21 +24,39 @@ export async function GET(request: NextRequest) {
     new Date().toISOString().slice(0, 7);
   const type = request.nextUrl.searchParams.get("type") ?? "all";
 
+  // A reimbursement claim is about what you are still OWED, not about what
+  // happened inside a calendar window. An unpaid June receipt still has to
+  // appear in today's claim, so the reimbursable report defaults to every
+  // unpaid receipt regardless of month. `scope=month` keeps the old behaviour
+  // for reproducing a past month's paperwork.
+  //
+  // This also sidesteps a trap: `month_key` is the UPLOAD month (migration
+  // 0004), not the date on the receipt, so month-scoping files a June receipt
+  // uploaded in July under July.
+  const outstanding =
+    type === "reimbursable" && request.nextUrl.searchParams.get("scope") !== "month";
+
+  let receiptQuery = supabase
+    .from("receipts")
+    .select("*, categories(name)")
+    .is("duplicate_of", null) // never include flagged duplicates in a report
+    .order("receipt_date", { ascending: true, nullsFirst: true });
+
+  receiptQuery = outstanding
+    ? receiptQuery.eq("reimbursable", true).eq("paid", false)
+    : receiptQuery.eq("month_key", month);
+
   const [{ data: profile }, { data: settings }, { data: receipts }] = await Promise.all([
     supabase.from("profiles").select("full_name, company_name").eq("id", user.id).single(),
     supabase.from("user_settings").select("usd_to_ttd_rate").eq("user_id", user.id).single(),
-    supabase
-      .from("receipts")
-      .select("*, categories(name)")
-      .eq("month_key", month)
-      .is("duplicate_of", null) // never include flagged duplicates in a report
-      .order("receipt_date", { ascending: true, nullsFirst: true }),
+    receiptQuery,
   ]);
   const usdRate = Number(settings?.usd_to_ttd_rate ?? 6.8);
 
   const allRows = (receipts ?? []) as Row[];
-  const rowsData =
-    type === "reimbursable"
+  const rowsData = outstanding
+    ? allRows // already filtered to unpaid reimbursables by the query
+    : type === "reimbursable"
       ? allRows.filter((r) => r.reimbursable === true)
       : type === "company"
         ? allRows.filter((r) => r.payment_method === "company_card")
@@ -49,6 +67,10 @@ export async function GET(request: NextRequest) {
       : type === "company"
         ? "Company Card Report"
         : "Expense Report";
+  const today = new Date().toISOString().slice(0, 10);
+  const period = outstanding
+    ? `All unpaid reimbursables as at ${today}`
+    : formatMonthKey(month);
   const ttd = (r: Row) => Number(r.ttd_amount ?? 0);
 
   const totals = {
@@ -84,7 +106,7 @@ export async function GET(request: NextRequest) {
       title: reportTitle,
       company: profile?.company_name ?? "",
       userName: profile?.full_name ?? user.email ?? "",
-      period: formatMonthKey(month),
+      period,
       rows,
       totals,
       rate: usdRate.toFixed(2),
@@ -112,7 +134,10 @@ export async function GET(request: NextRequest) {
 
   const pdf = await merged.save();
 
-  // Cache the totals for the dashboard / history.
+  // Cache the totals for the dashboard / history. Skipped for an outstanding
+  // run: monthly_reports is keyed by month, and an across-all-months claim
+  // filed under one month would corrupt that month's history.
+  if (!outstanding) {
   await supabase.from("monthly_reports").upsert(
     {
       user_id: user.id,
@@ -132,11 +157,16 @@ export async function GET(request: NextRequest) {
     },
     { onConflict: "user_id,month_key" }
   );
+  }
+
+  const filename = outstanding
+    ? `reimbursable-outstanding-${today}.pdf`
+    : `expense-report-${month}.pdf`;
 
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="expense-report-${month}.pdf"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }
