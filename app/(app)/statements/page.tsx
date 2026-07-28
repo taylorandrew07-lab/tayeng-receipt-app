@@ -2,8 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { StatementUploader } from "@/components/statements/statement-uploader";
-import { DeleteButton } from "@/components/delete-button";
-import { deleteStatement } from "@/lib/statements/actions";
+import { DeleteStatementButton } from "@/components/statements/delete-statement-button";
 
 type StatementRow = {
   id: string;
@@ -57,12 +56,7 @@ export default async function StatementsPage() {
               <span className="whitespace-nowrap text-sm text-slate-500">
                 {st.statement_transactions?.[0]?.count ?? 0} transactions
               </span>
-              <DeleteButton
-                action={deleteStatement}
-                id={st.id}
-                label="Delete"
-                confirmText={`Delete "${st.file_name}" and its transactions? This cannot be undone.`}
-              />
+              <DeleteStatementButton id={st.id} />
             </li>
           ))}
         </ul>
