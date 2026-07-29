@@ -38,6 +38,14 @@ export default async function ReconcilePage({
                 .join(", ")}`
             : "No statements uploaded yet."
         }
+        action={
+          <Link
+            href="/reconcile/board"
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+          >
+            Match them up →
+          </Link>
+        }
       />
 
       {/* The one number that matters */}
