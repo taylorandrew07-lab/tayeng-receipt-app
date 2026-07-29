@@ -20,7 +20,13 @@
 -- READ-ONLY: replaces one view definition. No data is touched.
 -- ============================================================================
 
-create or replace view orphan_receipts with (security_invoker = on) as
+-- NOTE: `create or replace view` can only APPEND columns — it cannot insert one
+-- in the middle ("cannot change name of view column ..."). The new columns
+-- belong next to the fields they qualify, so the view is dropped and rebuilt.
+-- Safe: nothing in the database depends on it, only app queries.
+drop view if exists orphan_receipts;
+
+create view orphan_receipts with (security_invoker = on) as
 select
   r.id as receipt_id, r.user_id, r.receipt_date, r.vendor_name,
   r.ttd_amount, r.amount, r.currency, r.card_last4,
