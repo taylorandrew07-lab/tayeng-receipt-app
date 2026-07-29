@@ -39,12 +39,27 @@ export default async function ReconcilePage({
             : "No statements uploaded yet."
         }
         action={
-          <Link
-            href="/reconcile/board"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
-          >
-            Match them up →
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/reconcile/board"
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+            >
+              Match them up →
+            </Link>
+            <a
+              href="/api/reports/closeout"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Close-out PDF
+            </a>
+            <a
+              href="/api/reports/closeout?appendix=none"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              title="Table only — no receipt documents, always fast"
+            >
+              Work list only
+            </a>
+          </div>
         }
       />
 

@@ -41,11 +41,19 @@ async function mapLimit<T, R>(
  * page. File metadata is fetched in ONE query and blobs download concurrently —
  * no per-receipt round-trip storms.
  */
+export type AppendOptions = {
+  /** Stop embedding after this many receipts. */
+  maxReceipts?: number;
+  /** Absolute Date.now() after which embedding stops. Vercel caps at 60s. */
+  deadline?: number;
+};
+
 export async function appendReceiptDocuments(
   merged: PDFDocument,
   supabase: SupabaseClient,
-  items: ReceiptItem[]
-): Promise<void> {
+  items: ReceiptItem[],
+  options: AppendOptions = {}
+): Promise<{ embedded: number; skipped: number }> {
   const labelFont = await merged.embedFont(StandardFonts.Helvetica);
   const drawLabel = (page: import("pdf-lib").PDFPage, text: string) => {
     const size = 9;
@@ -55,10 +63,16 @@ export async function appendReceiptDocuments(
     page.drawText(text, { x: 8, y, size, font: labelFont, color: rgb(0.06, 0.09, 0.16) });
   };
 
-  if (items.length === 0) return;
+  if (items.length === 0) return { embedded: 0, skipped: 0 };
+
+  // A partial appendix that returns beats a 504 that returns nothing.
+  const cap = options.maxReceipts ?? items.length;
+  const capped = items.slice(0, cap);
+  let skipped = items.length - capped.length;
+  let embedded = 0;
 
   // 1) One query for every receipt's primary (earliest) file.
-  const ids = [...new Set(items.map((i) => i.receiptId))];
+  const ids = [...new Set(capped.map((i) => i.receiptId))];
   const { data: fileData } = await supabase
     .from("receipt_files")
     .select("receipt_id, storage_path, mime_type, file_name, created_at")
@@ -85,8 +99,13 @@ export async function appendReceiptDocuments(
     }
   });
 
-  // 3) Embed in order.
-  for (const item of items) {
+  // 3) Embed in order, stopping if we run out of time.
+  for (const item of capped) {
+    if (options.deadline && Date.now() > options.deadline) {
+      skipped += capped.length - embedded;
+      break;
+    }
+    embedded++;
     const label = item.label;
     const file = fileByReceipt.get(item.receiptId);
     if (!file) {
@@ -133,4 +152,6 @@ export async function appendReceiptDocuments(
       drawLabel(merged.addPage(A4), `${label} — could not be embedded`);
     }
   }
+
+  return { embedded, skipped };
 }
