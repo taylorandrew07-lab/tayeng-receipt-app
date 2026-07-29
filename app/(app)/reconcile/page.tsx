@@ -145,9 +145,42 @@ export default async function ReconcilePage({
           value={t.orphanOpenValue}
         >
           {d.orphansOpen.map((o) => (
-            <OrphanItem key={o.receipt_id} o={o} latestEnd={d.statements[0]?.effective_end} />
+            <OrphanItem
+              key={o.receipt_id}
+              o={o}
+              latestEnd={d.statements[0]?.effective_end}
+              earliestStart={
+                d.statements.length
+                  ? d.statements.reduce(
+                      (min, s) => (s.effective_start < min ? s.effective_start : min),
+                      d.statements[0].effective_start
+                    )
+                  : undefined
+              }
+            />
           ))}
         </Section>
+      )}
+
+      {/* Paid by cash or personal card — never on a card statement. */}
+      {t.reimbursableCount > 0 && (
+        <div className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-sm font-semibold text-sky-900">
+            {t.reimbursableCount} receipts you paid for yourself ·{" "}
+            {formatTTD(t.reimbursableValue)}
+          </p>
+          <p className="mt-1 text-sm text-sky-800">
+            Cash and personal-card receipts never appear on a company card statement, so
+            they are not part of closing out the statements. You claim these back through
+            the reimbursable report instead.
+          </p>
+          <Link
+            href="/reports"
+            className="mt-2 inline-block text-sm font-medium text-sky-900 underline"
+          >
+            Go to the reimbursable report →
+          </Link>
+        </div>
       )}
 
       {show === "done" && (
@@ -264,9 +297,20 @@ function ChargeItem({
   );
 }
 
-function OrphanItem({ o, latestEnd }: { o: OrphanRow; latestEnd?: string }) {
+function OrphanItem({
+  o,
+  latestEnd,
+  earliestStart,
+}: {
+  o: OrphanRow;
+  latestEnd?: string;
+  earliestStart?: string;
+}) {
   const afterPeriod =
     o.receipt_date && latestEnd ? o.receipt_date > latestEnd : false;
+  // Predates every statement we hold, so no statement here could ever match it.
+  const beforePeriod =
+    o.receipt_date && earliestStart ? o.receipt_date < earliestStart : false;
   return (
     <li className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
       <div className="min-w-0 flex-1">
@@ -283,6 +327,11 @@ function OrphanItem({ o, latestEnd }: { o: OrphanRow; latestEnd?: string }) {
           {afterPeriod && (
             <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-800">
               after the latest statement — likely on the next one
+            </span>
+          )}
+          {beforePeriod && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+              older than every statement you&apos;ve uploaded
             </span>
           )}
           {o.possible_duplicate_upload && (

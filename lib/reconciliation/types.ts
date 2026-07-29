@@ -45,6 +45,9 @@ export type OrphanRow = {
   sent_at: string | null;
   paid: boolean;
   reimbursable: boolean | null;
+  payment_method: string;
+  /** False when paid by cash/personal card — settled via the reimbursable report. */
+  expected_on_statement: boolean;
   pending_count: number;
   possible_duplicate_upload: boolean;
 };
@@ -60,10 +63,12 @@ export type CloseOutData = {
   alreadySent: ChargeRow[];
   /** Bank fees, interest, payments — real money, nothing to chase. */
   bankCharges: ChargeRow[];
-  /** Receipts with no statement line, not yet sent. */
+  /** Company-card receipts with no statement line, not yet sent — real work. */
   orphansOpen: OrphanRow[];
-  /** Receipts with no statement line, already sent. */
+  /** Company-card receipts with no statement line, already sent. */
   orphansSent: OrphanRow[];
+  /** Cash/personal-card receipts: never on a card statement. Not close-out work. */
+  reimbursables: OrphanRow[];
   /** Unmatched receipts available to attach to a charge. */
   attachable: { id: string; vendor_name: string | null; ttd_amount: number | null; receipt_date: string | null }[];
   statements: { id: string; file_name: string; effective_start: string; effective_end: string; txn_count: number }[];
@@ -76,5 +81,7 @@ export type CloseOutData = {
     rawLineTotal: number;
     bankChargesValue: number;
     orphanOpenValue: number;
+    reimbursableCount: number;
+    reimbursableValue: number;
   };
 };

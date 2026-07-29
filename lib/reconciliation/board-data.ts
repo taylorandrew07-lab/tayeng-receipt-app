@@ -10,7 +10,7 @@ const CHARGE_COLS =
 
 const ORPHAN_COLS =
   "receipt_id, receipt_date, vendor_name, ttd_amount, amount, currency, sent, sent_at, paid, " +
-  "reimbursable, pending_count, possible_duplicate_upload";
+  "reimbursable, payment_method, expected_on_statement, pending_count, possible_duplicate_upload";
 
 /**
  * Everything the close-out screen needs, in one place.
@@ -73,12 +73,17 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
   const readyToSend = by("already_matched");
   const alreadySent = by("already_sent");
 
-  const orphansOpen = orphans.filter((o) => !o.sent);
-  const orphansSent = orphans.filter((o) => o.sent);
+  // A cash or personal-card receipt can never appear on a CREDIT CARD
+  // statement — it is settled through the reimbursable report. Counting those
+  // here put items on a close-out list that could never be cleared.
+  const onStatement = orphans.filter((o) => o.expected_on_statement);
+  const reimbursables = orphans.filter((o) => !o.expected_on_statement);
+  const orphansOpen = onStatement.filter((o) => !o.sent);
+  const orphansSent = onStatement.filter((o) => o.sent);
 
   // A receipt already confirmed against a charge cannot be attached elsewhere
   // (0013 + 0016 both enforce it), so only orphans are offered.
-  const attachable = orphans.map((o) => ({
+  const attachable = onStatement.map((o) => ({
     id: o.receipt_id,
     vendor_name: o.vendor_name,
     ttd_amount: o.ttd_amount,
@@ -100,6 +105,7 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
     bankCharges,
     orphansOpen,
     orphansSent,
+    reimbursables,
     attachable,
     statements,
     totals: {
@@ -111,6 +117,8 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
       rawLineTotal: rawLines.reduce((a, r) => a + Number(r.amount ?? 0), 0),
       bankChargesValue: sum(bankCharges),
       orphanOpenValue: sumT(orphansOpen),
+      reimbursableCount: reimbursables.length,
+      reimbursableValue: sumT(reimbursables),
     },
   };
 }
