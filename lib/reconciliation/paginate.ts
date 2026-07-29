@@ -10,10 +10,18 @@
  */
 const PAGE = 1000;
 
-type Page<T> = PromiseLike<{
+export type Page<T> = PromiseLike<{
   data: T[] | null;
   error: { message: string } | null;
 }>;
+
+/**
+ * The Supabase client here has no generated database types, so PostgREST
+ * cannot infer row shapes from a select string and falls back to an error
+ * type. The row shapes are asserted in lib/reconciliation/types.ts and must be
+ * kept in step with the views in supabase/migrations/0017.
+ */
+export const asPage = <T,>(q: unknown): Page<T> => q as Page<T>;
 
 export async function fetchAll<T>(build: (from: number, to: number) => Page<T>): Promise<T[]> {
   const out: T[] = [];

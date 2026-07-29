@@ -15,6 +15,7 @@ export const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Statements",
     items: [
+      { href: "/reconcile", label: "Close-Out", icon: "✅" },
       { href: "/statements", label: "Statements", icon: "📄" },
       { href: "/matching", label: "Matching", icon: "🔗" },
     ],
