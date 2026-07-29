@@ -184,6 +184,8 @@ export type ExtractionResult = {
   vendor_name: string | null;
   amount: number | null;
   currency: string | null;
+  /** A USD figure printed on the document itself, for non-TTD/USD invoices. */
+  usd_equivalent: number | null;
   tax_amount: number | null;
   payment_method: PaymentMethod;
   card_last4: string | null;

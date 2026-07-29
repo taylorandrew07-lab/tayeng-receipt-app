@@ -123,10 +123,19 @@ export function classify(input: ClassifyInput): ClassifyResult {
   if (amount != null) {
     if (currency === "TTD") ttd_amount = round2(amount);
     else if (currency === "USD") ttd_amount = round2(amount * usdToTtdRate);
-    else {
-      // Unknown currency — don't guess a TTD figure that would distort totals.
+    else if (extraction.usd_equivalent != null) {
+      // Regional invoices (GYD, BBD, XCD ...) routinely print a USD figure for
+      // the same total. Valuing via that stated figure is far better than
+      // leaving the receipt with no TTD amount, which makes it invisible to
+      // matching and to every report.
+      ttd_amount = round2(extraction.usd_equivalent * usdToTtdRate);
+      reasons.push(
+        `Valued from the USD figure printed on the document (USD ${extraction.usd_equivalent}) — check it`
+      );
+    } else {
+      // No local rate and no USD figure: guessing would distort every total.
       ttd_amount = null;
-      reasons.push(`Currency ${currency} not supported — set the TTD amount manually`);
+      reasons.push(`Currency ${currency} has no USD figure on the document — set the TTD amount manually`);
     }
   } else {
     reasons.push("Amount could not be read");

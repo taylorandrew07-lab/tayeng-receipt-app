@@ -107,11 +107,28 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     console.error("extraction failed:", e);
+    // "Automatic extraction failed." told the user nothing, so a service-level
+    // outage looked like a bad document — five re-uploads of a perfectly good
+    // invoice, including converting it to a screenshot. Name the real cause.
+    const err = e as { status?: number; message?: string };
+    const raw = err?.message ?? "";
+    const reason = /credit balance is too low/i.test(raw)
+      ? "The extraction service has run out of credit. Add credits at console.anthropic.com under Plans & Billing, then upload again — nothing is wrong with this document."
+      : err?.status === 401
+        ? "The extraction service rejected our API key. Check ANTHROPIC_API_KEY."
+        : err?.status === 429
+          ? "The extraction service is rate-limited right now. Wait a minute and try again."
+          : err?.status === 529 || /overloaded/i.test(raw)
+            ? "The extraction service is overloaded. Try again shortly."
+            : /timeout|ETIMEDOUT|aborted/i.test(raw)
+              ? "Reading this document took too long. Try a smaller or clearer file."
+              : "Automatic extraction failed. The document was uploaded and is safe — you can fill the details in by hand.";
+
     await supabase
       .from("receipts")
-      .update({ status: "needs_review", notes: "Automatic extraction failed." })
+      .update({ status: "needs_review", notes: reason })
       .eq("id", receiptId);
-    return NextResponse.json({ error: "Extraction failed" }, { status: 502 });
+    return NextResponse.json({ error: reason }, { status: 502 });
   }
 
   const [{ data: cards }, { data: categories }, { data: rules }, { data: settings }] =

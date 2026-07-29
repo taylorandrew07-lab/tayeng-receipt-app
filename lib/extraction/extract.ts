@@ -17,6 +17,12 @@ const ExtractionSchema = z.object({
     .string()
     .nullable()
     .describe("ISO currency code, e.g. TTD or USD. Null if unclear."),
+  usd_equivalent: z
+    .number()
+    .nullable()
+    .describe(
+      "If the document is in a currency other than TTD or USD but ALSO prints a USD figure for the same total, put that USD figure here. Null otherwise."
+    ),
   tax_amount: z.number().nullable().describe("VAT / tax amount if shown"),
   payment_method: z.enum([
     "personal_card",
@@ -44,7 +50,8 @@ Extract the requested fields. Rules:
 - Use null for any field you cannot read confidently. Do not guess values.
 - receipt_date must be YYYY-MM-DD. For statements, use the statement/closing date.
 - amount is the final grand total actually paid (after tax).
-- currency: detect TTD vs USD (Amazon and most online invoices are USD). Null if genuinely unclear.
+- currency: the ISO code the grand total is actually billed in. Commonly TTD or USD, but regional invoices may be GYD (Guyana), BBD, XCD, JMD, CAD, GBP, EUR. Use the real code — never force it to TTD or USD.
+- usd_equivalent: many regional invoices print a USD figure alongside the local total (e.g. "GYD 85,417.05 / USD 406.75", often with a stated rate like "1 USD = GYD 210.00"). When the currency is NOT TTD or USD and such a USD figure is shown, put it here — it is what lets the expense be valued. Leave null if no USD figure appears.
 - card_last4: only if the digits are actually visible on the document.
 - payment_method: infer from the document (card, cash, online). Use "unknown" if you cannot tell.
 - category_guess: a short expense category such as Fuel, Food, Office supplies, Travel, Equipment, Online purchase, or Other.
@@ -112,6 +119,7 @@ export async function extractDocument({
       vendor_name: null,
       amount: null,
       currency: null,
+      usd_equivalent: null,
       tax_amount: null,
       payment_method: "unknown",
       card_last4: null,
