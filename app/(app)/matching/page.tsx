@@ -13,6 +13,7 @@ type MatchRow = {
   confirmed: boolean;
   receipt_id: string | null;
   statement_transaction_id: string | null;
+  rejected_at: string | null;
   receipts: Pick<
     Receipt,
     "vendor_name" | "ttd_amount" | "receipt_date" | "currency" | "amount"
@@ -22,10 +23,10 @@ type MatchRow = {
 export default async function MatchingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statement?: string }>;
+  searchParams: Promise<{ statement?: string; msg?: string }>;
 }) {
   const supabase = await createClient();
-  const { statement: statementId } = await searchParams;
+  const { statement: statementId, msg } = await searchParams;
 
   if (!statementId) return <StatementPicker />;
 
@@ -50,7 +51,7 @@ export default async function MatchingPage({
     ? await supabase
         .from("receipt_statement_matches")
         .select(
-          "id, status, confidence, confirmed, receipt_id, statement_transaction_id, receipts(vendor_name, ttd_amount, receipt_date, currency, amount)"
+          "id, status, confidence, confirmed, rejected_at, receipt_id, statement_transaction_id, receipts(vendor_name, ttd_amount, receipt_date, currency, amount)"
         )
         .in("statement_transaction_id", txnIds)
     : { data: [] };
@@ -60,7 +61,9 @@ export default async function MatchingPage({
     matches.map((m) => m.statement_transaction_id).filter(Boolean) as string[]
   );
   const confirmed = matches.filter((m) => m.confirmed);
-  const possible = matches.filter((m) => !m.confirmed);
+  // A rejected pairing is kept (0016's rejected_at) so no run resurrects it —
+  // which also means it must not be offered here again.
+  const possible = matches.filter((m) => !m.confirmed && !m.rejected_at);
 
   // A charge carried on several overlapping statements has ONE receipt, attached
   // to whichever copy was matched first. Looking only at this statement's copy
@@ -140,6 +143,12 @@ export default async function MatchingPage({
         }
       />
 
+      {msg && (
+        <p className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          {msg}
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Matched" value={confirmed.length} tone="good" />
         <Stat label="Possible" value={possible.length} tone="warn" />
@@ -202,6 +211,7 @@ export default async function MatchingPage({
                           name="txn_id"
                           value={m.statement_transaction_id ?? ""}
                         />
+                        <input type="hidden" name="statement_id" value={st.id} />
                         <button className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700">
                           Confirm
                         </button>
@@ -213,6 +223,7 @@ export default async function MatchingPage({
                           name="txn_id"
                           value={m.statement_transaction_id ?? ""}
                         />
+                        <input type="hidden" name="statement_id" value={st.id} />
                         <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
                           Not a match
                         </button>
@@ -259,6 +270,7 @@ export default async function MatchingPage({
                         name="txn_id"
                         value={m.statement_transaction_id ?? ""}
                       />
+                      <input type="hidden" name="statement_id" value={st.id} />
                       <button className="text-xs text-slate-400 hover:text-red-700">
                         Unmatch
                       </button>

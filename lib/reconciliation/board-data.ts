@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
-import type { ChargeRow, CloseOutData, OrphanRow } from "@/lib/reconciliation/types";
+import type {
+  ChargeRow,
+  CloseOutData,
+  OrphanRow,
+  StatementCoverageRow,
+} from "@/lib/reconciliation/types";
 
 const CHARGE_COLS =
   "charge_id, txn_date, description, amount, currency, card_last4, canonical_txn_id, " +
@@ -11,6 +16,11 @@ const CHARGE_COLS =
 const ORPHAN_COLS =
   "receipt_id, receipt_date, vendor_name, ttd_amount, amount, currency, sent, sent_at, paid, " +
   "reimbursable, payment_method, expected_on_statement, pending_count, possible_duplicate_upload";
+
+const STATEMENT_COLS =
+  "id, file_name, effective_start, effective_end, txn_count, line_total, " +
+  "previous_balance, total_purchases, total_payments, closing_balance, " +
+  "credits_excluded, totals_reconciled, totals_difference";
 
 /**
  * Everything the close-out screen needs, in one place.
@@ -45,17 +55,11 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
           .range(from, to)
       )
     ),
-    fetchAll<{
-      id: string;
-      file_name: string;
-      effective_start: string;
-      effective_end: string;
-      txn_count: number;
-    }>((from, to) =>
-      asPage(
+    fetchAll<StatementCoverageRow>((from, to) =>
+      asPage<StatementCoverageRow>(
         supabase
           .from("statement_coverage")
-          .select("id, file_name, effective_start, effective_end, txn_count")
+          .select(STATEMENT_COLS)
           .order("effective_end", { ascending: false })
           .range(from, to)
       )
@@ -67,11 +71,24 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
 
   const by = (s: ChargeRow["state"]) => charges.filter((c) => c.state === s);
 
-  const bankCharges = by("no_receipt_expected");
   const needsReceipt = by("genuinely_new");
   const needsConfirmation = by("needs_confirmation");
   const readyToSend = by("already_matched");
   const alreadySent = by("already_sent");
+
+  // Both of these are `no_receipt_expected`, but they mean completely
+  // different things and must never be presented as one pile:
+  //
+  //   fee_auto_flagged = true   the machine recognised bank noise — an
+  //                             overlimit fee, interest, a payment to the card.
+  //   fee_auto_flagged = false  a PERSON decided this real purchase is closed
+  //                             without a receipt.
+  //
+  // Merging them put TTD 1,877.26 of genuine Amazon and petrol spend into a
+  // section of the accountant's PDF headed "Bank charges".
+  const noReceiptExpected = by("no_receipt_expected");
+  const bankCharges = noReceiptExpected.filter((c) => c.fee_auto_flagged);
+  const clearedByHand = noReceiptExpected.filter((c) => !c.fee_auto_flagged);
 
   // A cash or personal-card receipt can never appear on a CREDIT CARD
   // statement — it is settled through the reimbursable report. Counting those
@@ -95,7 +112,28 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
   const sumT = (rows: OrphanRow[]) => rows.reduce((a, r) => a + Number(r.ttd_amount ?? 0), 0);
 
   const openCharges = [...needsReceipt, ...needsConfirmation];
+
+  // OPEN + CLOSED must equal TOTAL, over one single universe of items.
+  //
+  // The old version counted `charges + ALL orphans` as the denominator while
+  // the numerator counted neither the reimbursables nor the already-sent
+  // orphans, so the bar could never reach 100%. Live effect: the screen said
+  // "0 open · Nothing outstanding" above a progress bar reading 61%.
+  //
+  // The universe is close-out work: every charge, plus every receipt that is
+  // expected on a statement. Reimbursables are settled through a different
+  // report and belong to neither side.
   const openCount = openCharges.length + orphansOpen.length;
+  const closedCount =
+    readyToSend.length +
+    alreadySent.length +
+    bankCharges.length +
+    clearedByHand.length +
+    orphansSent.length;
+
+  // Control totals: can we prove every line on every statement was captured?
+  const withTotals = statements.filter((s) => s.totals_reconciled !== null);
+  const unreconciled = withTotals.filter((s) => s.totals_reconciled === false);
 
   return {
     needsReceipt,
@@ -103,6 +141,7 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
     readyToSend,
     alreadySent,
     bankCharges,
+    clearedByHand,
     orphansOpen,
     orphansSent,
     reimbursables,
@@ -111,14 +150,18 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
     totals: {
       openCount,
       openValue: sum(openCharges) + sumT(orphansOpen),
-      closedCount: readyToSend.length + alreadySent.length + bankCharges.length,
-      totalCount: charges.length + orphans.length,
+      closedCount,
+      totalCount: openCount + closedCount,
       spendTotal: sum(charges),
       rawLineTotal: rawLines.reduce((a, r) => a + Number(r.amount ?? 0), 0),
       bankChargesValue: sum(bankCharges),
+      clearedByHandValue: sum(clearedByHand),
       orphanOpenValue: sumT(orphansOpen),
       reimbursableCount: reimbursables.length,
       reimbursableValue: sumT(reimbursables),
+      statementsWithTotals: withTotals.length,
+      statementsUnreconciled: unreconciled.length,
+      unreconciledNames: unreconciled.map((s) => s.file_name),
     },
   };
 }

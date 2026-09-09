@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeVendor } from "@/lib/classification/classify";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
+import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 import type { PaymentMethod } from "@/lib/types";
 
 export type ReceiptFormState = { error?: string } | undefined;
@@ -185,14 +186,10 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
   } = await supabase.auth.getUser();
   if (!user) return { flagged: 0 };
 
-  const { data } = await supabase
-    .from("receipts")
-    .select(
-      "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(file_name)"
-    )
-    .order("created_at", { ascending: true });
-
-  const rows = (data ?? []) as {
+  // Paginated: PostgREST silently caps a response at 1000 rows, and a
+  // duplicate scan that sees an arbitrary subset of the corpus flags the wrong
+  // receipts as copies -- and misses real ones -- with no error raised.
+  const rows = await fetchAll<{
     id: string;
     created_at: string;
     receipt_date: string | null;
@@ -203,7 +200,17 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     duplicate_of: string | null;
     not_duplicate: boolean;
     receipt_files: { file_name: string }[];
-  }[];
+  }>((from, to) =>
+    asPage(
+      supabase
+        .from("receipts")
+        .select(
+          "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(file_name)"
+        )
+        .order("created_at", { ascending: true })
+        .range(from, to)
+    )
+  );
 
   // Group ids by each duplicate key (rows are in upload order).
   const groups = new Map<string, string[]>();

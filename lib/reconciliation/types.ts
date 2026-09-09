@@ -52,6 +52,30 @@ export type OrphanRow = {
   possible_duplicate_upload: boolean;
 };
 
+/** A statement plus its coverage and control-total verdict (0014 + 0022). */
+export type StatementCoverageRow = {
+  id: string;
+  file_name: string;
+  effective_start: string;
+  effective_end: string;
+  txn_count: number;
+  /** Sum of the transaction amounts currently held for this statement. */
+  line_total: number | null;
+  previous_balance: number | null;
+  /** Total purchases/debits as PRINTED on the statement. The control total. */
+  total_purchases: number | null;
+  total_payments: number | null;
+  closing_balance: number | null;
+  credits_excluded: number;
+  /**
+   * null = the statement's own total was never read, so completeness is
+   * UNKNOWN. true = our extracted lines match it to the cent. false = they do
+   * not, and a line is missing or wrong.
+   */
+  totals_reconciled: boolean | null;
+  totals_difference: number | null;
+};
+
 export type CloseOutData = {
   /** Charges still needing a receipt — the work list. */
   needsReceipt: ChargeRow[];
@@ -61,8 +85,14 @@ export type CloseOutData = {
   readyToSend: ChargeRow[];
   /** Done — matched and sent. */
   alreadySent: ChargeRow[];
-  /** Bank fees, interest, payments — real money, nothing to chase. */
+  /** Bank fees, interest, payments — recognised by the machine, nothing to chase. */
   bankCharges: ChargeRow[];
+  /**
+   * Real purchases a PERSON decided to close without a receipt. Same
+   * no_receipt_expected flag as bankCharges, completely different meaning —
+   * internal housekeeping that must never be reported as a bank fee.
+   */
+  clearedByHand: ChargeRow[];
   /** Company-card receipts with no statement line, not yet sent — real work. */
   orphansOpen: OrphanRow[];
   /** Company-card receipts with no statement line, already sent. */
@@ -71,7 +101,7 @@ export type CloseOutData = {
   reimbursables: OrphanRow[];
   /** Unmatched receipts available to attach to a charge. */
   attachable: { id: string; vendor_name: string | null; ttd_amount: number | null; receipt_date: string | null }[];
-  statements: { id: string; file_name: string; effective_start: string; effective_end: string; txn_count: number }[];
+  statements: StatementCoverageRow[];
   totals: {
     openCount: number;
     openValue: number;
@@ -80,8 +110,14 @@ export type CloseOutData = {
     spendTotal: number;
     rawLineTotal: number;
     bankChargesValue: number;
+    clearedByHandValue: number;
     orphanOpenValue: number;
     reimbursableCount: number;
     reimbursableValue: number;
+    /** Statements whose printed total we managed to read. */
+    statementsWithTotals: number;
+    /** ...of those, how many our extracted lines do NOT add up to. */
+    statementsUnreconciled: number;
+    unreconciledNames: string[];
   };
 };

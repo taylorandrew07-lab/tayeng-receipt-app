@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { extractDocument } from "@/lib/extraction/extract";
 import { classify } from "@/lib/classification/classify";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
+import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 import { resolveMediaType } from "@/lib/files/media-type";
 import { getApprovedUser, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "@/lib/auth/guard";
 import type { Card, Category, LearningRule } from "@/lib/types";
@@ -165,23 +166,30 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    const { data: candidates } = await supabase
-      .from("receipts")
-      .select("id, receipt_date, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)")
-      .neq("id", receiptId)
-      .is("duplicate_of", null);
+    // Paginated: past PostgREST's silent 1000-row cap this saw an arbitrary
+    // slice of the corpus, so a real duplicate simply would not be found.
+    const candidates = await fetchAll<{
+      id: string;
+      receipt_date: string | null;
+      vendor_name: string | null;
+      ttd_amount: number | null;
+      amount: number | null;
+      card_last4: string | null;
+      receipt_files: { file_name: string }[];
+    }>((from, to) =>
+      asPage(
+        supabase
+          .from("receipts")
+          .select(
+            "id, receipt_date, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)"
+          )
+          .neq("id", receiptId)
+          .is("duplicate_of", null)
+          .range(from, to)
+      )
+    );
 
-    const match = (
-      (candidates ?? []) as {
-        id: string;
-        receipt_date: string | null;
-        vendor_name: string | null;
-        ttd_amount: number | null;
-        amount: number | null;
-        card_last4: string | null;
-        receipt_files: { file_name: string }[];
-      }[]
-    ).find((c) =>
+    const match = candidates.find((c) =>
       duplicateKeys({
         receipt_date: c.receipt_date,
         vendor_name: c.vendor_name,

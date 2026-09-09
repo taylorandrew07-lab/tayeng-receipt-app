@@ -40,6 +40,17 @@ export type UserSettings = {
   usd_to_ttd_rate: number;
   date_tolerance_days: number;
   amount_tolerance_pct: number;
+  // Consolidated reconciliation scope (0014). These drive runMatchPass.
+  /** How many statements a consolidated run covers. 0 = all. */
+  reconcile_statement_count: number;
+  /** Candidate receipts may be at most this many days before the period start. */
+  receipt_window_days_before: number;
+  /** ...and at most this many days after the period end. */
+  receipt_window_days_after: number;
+  /** Date tolerance when deciding two statement lines are the same charge. */
+  charge_match_days: number;
+  /** Off by design: a run produces suggestions, not confirmations. */
+  auto_confirm_enabled: boolean;
   created_at: string;
   updated_at: string;
 };

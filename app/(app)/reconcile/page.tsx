@@ -3,8 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { formatTTD } from "@/lib/month";
 import { loadCloseOut } from "@/lib/reconciliation/board-data";
-import type { ChargeRow, OrphanRow } from "@/lib/reconciliation/types";
+import type {
+  ChargeRow,
+  OrphanRow,
+  StatementCoverageRow,
+} from "@/lib/reconciliation/types";
 import { AttachReceipt } from "@/components/matching/attach-receipt";
+import { RunMatchingButton } from "@/components/reconcile/run-matching-button";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +45,7 @@ export default async function ReconcilePage({
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <RunMatchingButton />
             <Link
               href="/reconcile/board"
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
@@ -89,10 +95,12 @@ export default async function ReconcilePage({
             statements. Each one is counted once here.
           </p>
         )}
-        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
-          Statement totals not yet read from the PDFs — this list can&apos;t yet prove every
-          line was captured.
-        </p>
+        <ControlTotal
+          statements={d.statements}
+          withTotals={t.statementsWithTotals}
+          unreconciled={t.statementsUnreconciled}
+          names={t.unreconciledNames}
+        />
       </div>
 
       <nav className="mt-5 flex flex-wrap gap-2">
@@ -229,6 +237,36 @@ export default async function ReconcilePage({
         </details>
       )}
 
+      {/* Real purchases YOU closed without a receipt. Same database flag as the
+          bank charges above, completely different meaning — so never shown in
+          the same list, and never sent to the accountant as a bank fee. */}
+      {d.clearedByHand.length > 0 && (
+        <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+            ✓ Closed off by you — no receipt needed · {d.clearedByHand.length} ·{" "}
+            {formatTTD(t.clearedByHandValue)}
+          </summary>
+          <ul className="mt-3 space-y-1">
+            {d.clearedByHand.map((c) => (
+              <li
+                key={c.charge_id}
+                className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm"
+              >
+                <span className="text-slate-700">{c.description ?? "—"}</span>
+                <span className="whitespace-nowrap text-slate-500">
+                  {c.txn_date ?? "—"} · {formatTTD(Number(c.amount ?? 0))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-400">
+            These are real purchases you decided to close without chasing paperwork. They
+            are kept here for your own records and are <strong>not</strong> included in the
+            close-out PDF you give the accountant.
+          </p>
+        </details>
+      )}
+
       {t.openCount === 0 && (
         <div className="mt-8 rounded-xl border border-dashed border-emerald-300 bg-emerald-50 p-10 text-center">
           <p className="text-lg font-semibold text-emerald-900">Nothing outstanding.</p>
@@ -238,6 +276,70 @@ export default async function ReconcilePage({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Can this list prove it is complete?
+ *
+ * Until 0022 the app had no answer: it read transactions and nothing else, so a
+ * line the parser skipped looked exactly like a line that was never there. Now
+ * each statement carries its own printed purchases total and the extracted
+ * lines are checked against it.
+ *
+ * Three states, deliberately distinct — "we did not check" must never read as
+ * "we checked and it was fine".
+ */
+function ControlTotal({
+  statements,
+  withTotals,
+  unreconciled,
+  names,
+}: {
+  statements: StatementCoverageRow[];
+  withTotals: number;
+  unreconciled: number;
+  names: string[];
+}) {
+  if (statements.length === 0) return null;
+
+  if (unreconciled > 0) {
+    return (
+      <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-800">
+        <strong>
+          {unreconciled} statement{unreconciled === 1 ? "" : "s"} do not add up
+        </strong>{" "}
+        — the charges read from {names.join(", ")} do not match the total printed on the
+        statement itself. A line has been missed. Re-upload or re-parse before relying on
+        this list.
+      </p>
+    );
+  }
+
+  if (withTotals === 0) {
+    return (
+      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+        None of your statements have had their printed totals read yet, so this list
+        can&apos;t prove every line was captured. Re-parse a statement to check it.
+      </p>
+    );
+  }
+
+  if (withTotals < statements.length) {
+    return (
+      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+        {withTotals} of {statements.length} statements check out against their own printed
+        totals. The other {statements.length - withTotals} don&apos;t print a total we could
+        read, so those can&apos;t be proven complete.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+      ✓ Every statement adds up — the charges listed here match the totals printed on the
+      statements themselves, to the cent.
+    </p>
   );
 }
 

@@ -65,6 +65,10 @@ export async function GET(request: NextRequest) {
   const orphanRows = d.orphansOpen.map(orphanLine);
   const matchedRows = d.readyToSend.map(chargeLine);
   const sentRows = d.alreadySent.map(chargeLine);
+  // d.bankCharges is now FEES ONLY (fee_auto_flagged). Charges Andrew closed by
+  // hand carry the same no_receipt_expected flag but are internal housekeeping
+  // and deliberately never reach a report — they used to be printed here, which
+  // presented real Amazon and petrol spend to the accountant as bank charges.
   const bankRows = d.bankCharges.map(chargeLine);
 
   const sumC = (rows: ChargeRow[]) => rows.reduce((a, c) => a + Number(c.amount ?? 0), 0);
@@ -121,6 +125,8 @@ export async function GET(request: NextRequest) {
       alreadySent: sentRows,
       bankCharges: bankRows,
       totals: {
+        // The number of rows actually listed below, so the cover page ties to
+        // the tables. clearedByHand is excluded from both.
         charges:
           d.needsReceipt.length +
           d.needsConfirmation.length +
