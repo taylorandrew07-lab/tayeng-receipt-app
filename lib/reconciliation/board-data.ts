@@ -6,6 +6,7 @@ import type {
   OrphanRow,
   StatementCoverageRow,
 } from "@/lib/reconciliation/types";
+import { completenessOf } from "@/lib/reports/completeness";
 
 const CHARGE_COLS =
   "charge_id, txn_date, description, amount, currency, card_last4, canonical_txn_id, " +
@@ -18,9 +19,9 @@ const ORPHAN_COLS =
   "reimbursable, payment_method, expected_on_statement, pending_count, possible_duplicate_upload";
 
 const STATEMENT_COLS =
-  "id, file_name, effective_start, effective_end, txn_count, line_total, " +
-  "previous_balance, total_purchases, total_payments, closing_balance, " +
-  "credits_excluded, totals_reconciled, totals_difference";
+  "id, file_name, effective_start, effective_end, period_read, txn_count, line_total, " +
+  "currencies, previous_balance, total_purchases, total_payments, closing_balance, " +
+  "credits_excluded, totals_reconciled, totals_difference, balance_consistent, balance_difference";
 
 /**
  * Everything the close-out screen needs, in one place.
@@ -61,11 +62,20 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
           .from("statement_coverage")
           .select(STATEMENT_COLS)
           .order("effective_end", { ascending: false })
+          // A unique tiebreak: paging needs a TOTAL order, or rows can be
+          // skipped or repeated across the 1000-row boundary.
+          .order("id", { ascending: true })
           .range(from, to)
       )
     ),
-    fetchAll<{ amount: number | null }>((from, to) =>
-      asPage(supabase.from("statement_transactions").select("amount").range(from, to))
+    fetchAll<{ amount: number | null; currency: string | null }>((from, to) =>
+      asPage(
+        supabase
+          .from("statement_transactions")
+          .select("amount, currency")
+          .order("id", { ascending: true })
+          .range(from, to)
+      )
     ),
   ]);
 
@@ -107,8 +117,23 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
     receipt_date: o.receipt_date,
   }));
 
-  const sum = (rows: { amount: number | null }[]) =>
-    rows.reduce((a, r) => a + Number(r.amount ?? 0), 0);
+  // TTD ONLY. Every total on the close-out screen is printed with formatTTD,
+  // so a statement line in any other currency must never be added into one.
+  // Such lines are counted separately below and shown in their own currency.
+  const isTtd = (r: { currency?: string | null }) =>
+    (r.currency ?? "TTD").toUpperCase() === "TTD";
+  const sum = (rows: { amount: number | null; currency?: string | null }[]) =>
+    rows.filter(isTtd).reduce((a, r) => a + Number(r.amount ?? 0), 0);
+
+  const foreign = new Map<string, { count: number; total: number }>();
+  for (const c of charges) {
+    if (isTtd(c)) continue;
+    const cur = c.currency.toUpperCase();
+    const f = foreign.get(cur) ?? { count: 0, total: 0 };
+    f.count += 1;
+    f.total += Number(c.amount ?? 0);
+    foreign.set(cur, f);
+  }
   const sumT = (rows: OrphanRow[]) => rows.reduce((a, r) => a + Number(r.ttd_amount ?? 0), 0);
 
   const openCharges = [...needsReceipt, ...needsConfirmation];
@@ -131,9 +156,13 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
     clearedByHand.length +
     orphansSent.length;
 
-  // Control totals: can we prove every line on every statement was captured?
-  const withTotals = statements.filter((s) => s.totals_reconciled !== null);
-  const unreconciled = withTotals.filter((s) => s.totals_reconciled === false);
+  // Can we prove every line on every statement was captured? One verdict per
+  // statement, from the same function the PDF uses (lib/reports/completeness).
+  const verdicts = statements.map((s) => ({ s, c: completenessOf(s) }));
+  const proven = verdicts.filter((v) => v.c.proven);
+  const failing = verdicts.filter(
+    (v) => v.c.verdict === "does_not_add_up" || v.c.verdict === "summary_inconsistent"
+  );
 
   return {
     needsReceipt,
@@ -153,15 +182,16 @@ export async function loadCloseOut(supabase: SupabaseClient<any, any, any>): Pro
       closedCount,
       totalCount: openCount + closedCount,
       spendTotal: sum(charges),
-      rawLineTotal: rawLines.reduce((a, r) => a + Number(r.amount ?? 0), 0),
+      rawLineTotal: sum(rawLines),
       bankChargesValue: sum(bankCharges),
       clearedByHandValue: sum(clearedByHand),
       orphanOpenValue: sumT(orphansOpen),
       reimbursableCount: reimbursables.length,
       reimbursableValue: sumT(reimbursables),
-      statementsWithTotals: withTotals.length,
-      statementsUnreconciled: unreconciled.length,
-      unreconciledNames: unreconciled.map((s) => s.file_name),
+      statementsProven: proven.length,
+      statementsFailing: failing.length,
+      failingNames: failing.map((v) => v.s.file_name),
+      foreignCharges: [...foreign.entries()].map(([currency, f]) => ({ currency, ...f })),
     },
   };
 }

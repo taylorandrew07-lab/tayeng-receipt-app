@@ -114,6 +114,17 @@ describe("selectOpenLines — what a run hunts for", () => {
     expect(out.map((l) => l.id)).toEqual(["t1"]);
   });
 
+  it("never auto-scores a line in another currency against a TTD receipt", () => {
+    const out = selectOpenLines(
+      [
+        { id: "ttd", charge_id: "a", txn_date: "2026-07-01", currency: "TTD" },
+        { id: "usd", charge_id: "b", txn_date: "2026-07-01", currency: "USD" },
+      ],
+      { confirmedTxnIds: new Set(), confirmedChargeIds: new Set(), closedChargeIds: new Set() }
+    );
+    expect(out.map((l) => l.id)).toEqual(["ttd"]);
+  });
+
   it("puts a closed charge back once it is reopened", () => {
     const out = selectOpenLines(lines, {
       confirmedTxnIds: new Set(),

@@ -8,6 +8,7 @@ import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
 import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 import { removeReceiptsSafely, type RemoveClient } from "@/lib/receipts/remove";
+import { receiptMoneyProblem } from "@/lib/receipts/validate";
 import type { PaymentMethod } from "@/lib/types";
 
 export type ReceiptFormState = { error?: string } | undefined;
@@ -73,6 +74,11 @@ export async function saveReceipt(
   if (!PAYMENT_METHODS.includes(payment_method)) {
     return { error: "Invalid payment method." };
   }
+
+  // Saving CONFIRMS the receipt, and a confirmed receipt feeds matching, the
+  // close-out list and every report — so its money must be sound first.
+  const moneyProblem = receiptMoneyProblem({ currency, amount, ttd_amount, tax_amount, receipt_date });
+  if (moneyProblem) return { error: moneyProblem };
 
   // The card and the payment type must agree.
   //

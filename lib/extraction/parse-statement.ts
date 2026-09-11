@@ -10,7 +10,23 @@ const TxnSchema = z.object({
   amount: z
     .number()
     .nullable()
-    .describe("The value of the line as a POSITIVE number, whichever direction it is"),
+    .describe(
+      "The amount CHARGED TO THE CARD, in the statement's billing currency, as a POSITIVE " +
+        "number. Never the original foreign-currency amount."
+    ),
+  /**
+   * A foreign purchase shows two figures: what was spent abroad, and what the
+   * card was charged. Without a place to put the first, the model could put it
+   * in `amount` — and a USD 100 purchase would be stored as 100 "TTD".
+   */
+  original_amount: z
+    .number()
+    .nullable()
+    .describe("If the line was a foreign-currency purchase, the ORIGINAL amount spent; else null"),
+  original_currency: z
+    .string()
+    .nullable()
+    .describe("ISO code of original_amount, e.g. USD; else null"),
   /**
    * The direction check. Andrew only ever uploads CREDIT CARD statements, so a
    * PAYMENT line is always a payment TO the card and never an expense needing a
@@ -24,7 +40,10 @@ const TxnSchema = z.object({
       "debit = money spent or charged to the account (purchase, fee, interest). " +
         "credit = money coming back (payment to the card, refund, reversal)."
     ),
-  currency: z.string().nullable().describe("ISO currency, usually TTD"),
+  currency: z
+    .string()
+    .nullable()
+    .describe("ISO currency of `amount` — the statement's billing currency, usually TTD"),
   card_last4: z.string().nullable().describe("Card last 4 if shown per line"),
 });
 
@@ -41,6 +60,10 @@ const StatementSchema = z.object({
         "account statement; other for anything else."
     ),
   card_last4: z.string().nullable().describe("Statement's card last 4 digits, if shown"),
+  billing_currency: z
+    .string()
+    .nullable()
+    .describe("ISO code of the currency this card account is billed in — usually TTD"),
   period_start: z.string().nullable().describe("Statement period start YYYY-MM-DD"),
   period_end: z.string().nullable().describe("Statement period end / closing date YYYY-MM-DD"),
 
@@ -90,7 +113,9 @@ Extract EVERY transaction line, and the statement's own summary totals.
 
 Transactions:
 - Include EVERY line in the transaction list: purchases, fees, interest, finance charges, payments to the card, refunds and reversals. Do NOT leave anything out and do NOT summarise.
-- amount is always a POSITIVE number. Use "direction" to say which way the money went:
+- amount is the amount CHARGED TO THE CARD in the statement's billing currency, always a POSITIVE number. For a purchase made in another currency (e.g. a USD online order), amount is the converted figure the card was charged; put the foreign figure in original_amount and its code in original_currency. Never put a foreign amount in amount.
+- currency is the billing currency for every line.
+- Use "direction" to say which way the money went:
     direction = "debit"  for money spent or charged (purchases, fees, interest, finance charges)
     direction = "credit" for money coming back (payments to the card, refunds, reversals)
 - date must be YYYY-MM-DD. If both a transaction date and a posting date are shown, use the transaction date.
@@ -101,6 +126,8 @@ Summary totals — read these from the statement's own summary box, exactly as p
 - previous_balance, total_purchases, total_payments, closing_balance.
 - total_purchases must be the statement's printed total of purchases/debits for the period INCLUDING fees and interest. If the statement prints purchases and fees as separate totals, add them together.
 - If a figure is genuinely not printed anywhere, return null for it. Do NOT calculate or estimate it yourself — a guessed total is worse than no total, because it will be used to check our own work.
+
+billing_currency: the currency the account is billed in, usually TTD.
 
 document_kind: "credit_card" for a credit card statement, "bank_account" for a chequing/savings/current account statement, "other" for anything else.
 
@@ -141,6 +168,7 @@ export async function parseStatement({
     response.parsed_output ?? {
       document_kind: "other",
       card_last4: null,
+      billing_currency: null,
       period_start: null,
       period_end: null,
       previous_balance: null,

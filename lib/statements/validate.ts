@@ -20,6 +20,7 @@ export type ParsedLine = {
 
 export type ParsedForValidation = {
   document_kind: "credit_card" | "bank_account" | "other";
+  billing_currency?: string | null;
   total_purchases: number | null;
   transactions: ParsedLine[];
 };
@@ -32,7 +33,14 @@ export type ExistingStatement = {
 };
 
 export type Verdict =
-  | { ok: true; debits: ParsedLine[]; creditsExcluded: number; lineTotal: number }
+  | {
+      ok: true;
+      debits: ParsedLine[];
+      creditsExcluded: number;
+      lineTotal: number;
+      /** The single currency every stored amount is in. */
+      currency: string;
+    }
   | { ok: false; reason: string };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -100,9 +108,21 @@ export function validateParsedStatement(
     };
   }
 
+  // 4. ONE currency. A total is only a total if every figure in it is in the
+  //    same currency; summing TTD and USD lines produces a number that means
+  //    nothing and would be printed as TTD. Refuse rather than store it.
+  const currency = (parsed.billing_currency ?? debits[0].currency ?? "TTD").toUpperCase();
+  const foreign = debits.filter((t) => (t.currency ?? currency).toUpperCase() !== currency);
+  if (foreign.length > 0) {
+    return {
+      ok: false,
+      reason: `${foreign.length} line${foreign.length === 1 ? " is" : "s are"} in a different currency from the rest of the statement (${currency}), so the lines can't be added up. Nothing was changed. Try again.`,
+    };
+  }
+
   const lineTotal = round2(debits.reduce((a, t) => a + Number(t.amount), 0));
 
-  // 4. Never swap a reading that PROVABLY adds up for one that does not.
+  // 5. Never swap a reading that PROVABLY adds up for one that does not.
   const addsUp =
     parsed.total_purchases == null ? null : Math.abs(lineTotal - parsed.total_purchases) <= 0.01;
   if (existing.lineCount > 0 && existing.reconciled === true && addsUp === false) {
@@ -114,5 +134,5 @@ export function validateParsedStatement(
     };
   }
 
-  return { ok: true, debits, creditsExcluded, lineTotal };
+  return { ok: true, debits, creditsExcluded, lineTotal, currency };
 }

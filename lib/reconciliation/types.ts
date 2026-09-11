@@ -58,7 +58,11 @@ export type StatementCoverageRow = {
   file_name: string;
   effective_start: string;
   effective_end: string;
+  /** false = the period was inferred from the transactions, not read. */
+  period_read: boolean;
   txn_count: number;
+  /** Every currency this statement's lines are in (0026). */
+  currencies: string[];
   /** Sum of the transaction amounts currently held for this statement. */
   line_total: number | null;
   previous_balance: number | null;
@@ -74,6 +78,9 @@ export type StatementCoverageRow = {
    */
   totals_reconciled: boolean | null;
   totals_difference: number | null;
+  /** previous + purchases - payments == closing (0026). null = not all read. */
+  balance_consistent: boolean | null;
+  balance_difference: number | null;
 };
 
 export type CloseOutData = {
@@ -114,10 +121,15 @@ export type CloseOutData = {
     orphanOpenValue: number;
     reimbursableCount: number;
     reimbursableValue: number;
-    /** Statements whose printed total we managed to read. */
-    statementsWithTotals: number;
-    /** ...of those, how many our extracted lines do NOT add up to. */
-    statementsUnreconciled: number;
-    unreconciledNames: string[];
+    /** Statements PROVEN complete (lib/reports/completeness). */
+    statementsProven: number;
+    /** Statements whose checks actively FAILED — not merely unread. */
+    statementsFailing: number;
+    failingNames: string[];
+    /**
+     * Charges in a currency other than TTD. Never added into any TTD total;
+     * reported here, in their own currency, so they cannot go unseen.
+     */
+    foreignCharges: { currency: string; count: number; total: number }[];
   };
 };

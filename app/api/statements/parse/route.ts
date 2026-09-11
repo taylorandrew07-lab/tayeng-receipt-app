@@ -117,7 +117,8 @@ export async function POST(request: NextRequest) {
     txn_date: t.date,
     description: t.description,
     amount: t.amount,
-    currency: (t.currency ?? "TTD").toUpperCase(),
+    // Validation guaranteed every line is in this one billing currency.
+    currency: verdict.currency,
     card_last4: /^\d{4}$/.test(t.card_last4 ?? "") ? t.card_last4 : last4,
   }));
 

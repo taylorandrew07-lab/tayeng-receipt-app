@@ -28,6 +28,7 @@ type TxnRow = MatchTxn & {
   charge_id: string | null;
   statement_id: string;
   created_at: string | null;
+  currency: string | null;
 };
 type MatchRow = {
   receipt_id: string | null;
@@ -149,7 +150,7 @@ async function runMatchPass(
       supabase
         .from("statement_transactions")
         .select(
-          "id, txn_date, description, amount, card_last4, charge_id, statement_id, created_at"
+          "id, txn_date, description, amount, currency, card_last4, charge_id, statement_id, created_at"
         )
         .in("statement_id", scopedIds)
         // A unique ORDER BY is required for paging: without one Postgres may

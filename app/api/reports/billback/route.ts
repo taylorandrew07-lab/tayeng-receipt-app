@@ -6,7 +6,13 @@ import {
   BillBackReportDocument,
   type BillBackGroup,
 } from "@/lib/reports/billback-report-document";
-import { appendReceiptDocuments } from "@/lib/reports/append-receipts";
+import {
+  addOmissionsPage,
+  addPartCover,
+  appendReceiptDocuments,
+} from "@/lib/reports/append-receipts";
+import { partHeaders, slicePart } from "@/lib/reports/parts";
+import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 import { normalizeVendor } from "@/lib/classification/classify";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import { getApprovedUser } from "@/lib/auth/guard";
@@ -33,21 +39,41 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("month") ??
     new Date().toISOString().slice(0, 7);
 
-  const [{ data: profile }, { data: receipts }] = await Promise.all([
-    supabase.from("profiles").select("full_name, company_name").eq("id", user.id).single(),
-    supabase
-      .from("receipts")
-      .select(
-        "id, receipt_date, vendor_name, ttd_amount, bill_back_type, bill_back_name, bill_back_normalized"
-      )
-      .eq("month_key", month)
-      .eq("bill_back", true)
-      .is("duplicate_of", null)
-      .order("bill_back_normalized", { ascending: true })
-      .order("receipt_date", { ascending: true, nullsFirst: true }),
-  ]);
-
-  const rows = (receipts ?? []) as Row[];
+  const startedAt = Date.now();
+  // Paginated with a TOTAL order, and failing visibly: a failed read used to
+  // produce an empty bill-back report that looked like "nothing to bill".
+  let profile: { full_name: string | null; company_name: string | null } | null;
+  let rows: Row[];
+  try {
+    const [p, r] = await Promise.all([
+      supabase.from("profiles").select("full_name, company_name").eq("id", user.id).single(),
+      fetchAll<Row>((from, to) =>
+        asPage<Row>(
+          supabase
+            .from("receipts")
+            .select(
+              "id, receipt_date, vendor_name, ttd_amount, bill_back_type, bill_back_name, bill_back_normalized"
+            )
+            .eq("month_key", month)
+            .eq("bill_back", true)
+            .is("duplicate_of", null)
+            .order("bill_back_normalized", { ascending: true })
+            .order("receipt_date", { ascending: true, nullsFirst: true })
+            .order("id", { ascending: true })
+            .range(from, to)
+        )
+      ),
+    ]);
+    profile = p.data;
+    rows = r;
+  } catch (e) {
+    return new Response(
+      `The bill-back report could not be produced because its data could not be loaded: ${
+        (e as Error).message
+      }. Try again.`,
+      { status: 500 }
+    );
+  }
 
   // Group by normalized bill-back name; keep an ordered list of (row, n).
   const order: string[] = [];
@@ -97,22 +123,42 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  // Append the original receipt documents in the same numbered order.
-  const merged = await PDFDocument.load(coverBytes);
-  await appendReceiptDocuments(
-    merged,
-    supabase,
+  // The original documents, in the same numbered order, in parts so that
+  // every one is obtainable, with anything left out listed by name.
+  const slice = slicePart(
     numbered.map(({ n: num, row, groupName }) => ({
       receiptId: row.id,
       label: `#${num} · ${groupName} · ${row.vendor_name ?? "Receipt"}`,
-    }))
+    })),
+    request.nextUrl.searchParams.get("part")
   );
+  let merged: PDFDocument;
+  if (slice.part > 1) {
+    merged = await PDFDocument.create();
+    await addPartCover(merged, "Bill-back report", slice.part, slice.parts, slice.first, slice.last);
+  } else {
+    merged = await PDFDocument.load(coverBytes);
+  }
+  let omitted;
+  try {
+    ({ omitted } = await appendReceiptDocuments(merged, supabase, slice.items, {
+      deadline: startedAt + 42_000,
+    }));
+  } catch (e) {
+    return new Response(`Could not load the receipt documents: ${(e as Error).message}`, {
+      status: 500,
+    });
+  }
+  await addOmissionsPage(merged, omitted, slice);
 
   const pdf = await merged.save();
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="bill-back-report-${month}.pdf"`,
+      "Content-Disposition": `attachment; filename="bill-back-report-${month}${
+        slice.parts > 1 ? `-part-${slice.part}` : ""
+      }.pdf"`,
+      ...partHeaders(slice),
     },
   });
 }

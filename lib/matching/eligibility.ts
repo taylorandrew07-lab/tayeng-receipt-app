@@ -84,6 +84,7 @@ type Line = {
   charge_id: string | null;
   txn_date: string | null;
   created_at?: string | null;
+  currency?: string | null;
 };
 
 /**
@@ -131,8 +132,13 @@ function earlier(a: Line, b: Line): boolean {
 
 /**
  * The statement lines a run should try to find receipts for: not already
- * covered (by this line OR by any copy of its charge), not closed, and ONE per
- * real charge. runMatchPass calls exactly this.
+ * covered (by this line OR by any copy of its charge), not closed, in TTD, and
+ * ONE per real charge. runMatchPass calls exactly this.
+ *
+ * TTD only: the scorer compares a line's amount with receipts.ttd_amount. A
+ * line in any other currency would be scored against a number in a different
+ * unit — a USD 100 line "matching" a TTD 100 receipt. Such a line is left for a
+ * person to attach by hand.
  */
 export function selectOpenLines<T extends Line>(
   lines: T[],
@@ -145,6 +151,7 @@ export function selectOpenLines<T extends Line>(
   return oneLinePerCharge(
     lines.filter(
       (l) =>
+        (l.currency ?? "TTD").toUpperCase() === "TTD" &&
         !known.confirmedTxnIds.has(l.id) &&
         !(l.charge_id && known.confirmedChargeIds.has(l.charge_id)) &&
         !(l.charge_id && known.closedChargeIds.has(l.charge_id))

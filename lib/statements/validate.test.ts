@@ -82,6 +82,21 @@ describe("validateParsedStatement — decided BEFORE anything is changed", () =>
     expect(v).toMatchObject({ ok: false, reason: expect.stringMatching(/impossible/) });
   });
 
+  // Mixed currencies: never summed, never stored as one "TTD" total.
+  it("refuses a reading whose lines are in more than one currency", () => {
+    const v = validateParsedStatement(
+      { ...parsed(), billing_currency: "TTD", transactions: [debit(), debit({ currency: "USD" })] },
+      NEW,
+      TODAY
+    );
+    expect(v).toMatchObject({ ok: false, reason: expect.stringMatching(/different currency/) });
+  });
+
+  it("stores every line in the statement's billing currency", () => {
+    const v = validateParsedStatement({ ...parsed(), billing_currency: "ttd" }, NEW, TODAY);
+    expect(v.ok && v.currency).toBe("TTD");
+  });
+
   it("accepts an undated line — we store what we can't read as unknown", () => {
     expect(
       validateParsedStatement(parsed({ transactions: [debit({ date: null })], total_purchases: 100 }), NEW, TODAY).ok

@@ -14,11 +14,20 @@ export type ReportRow = {
   notes: string;
 };
 
+/**
+ * The payment-method lines PARTITION the report: every row lands in exactly
+ * one, so they add up to the grand total. Previously online / unknown / other
+ * receipts appeared in no line at all, and "reimbursable" was listed alongside
+ * them though it overlaps them — so the summary never summed to its own total.
+ */
 export type ReportTotalsView = {
+  /** Informational: the part of the grand total that is claimed back. */
   reimbursable: string;
   personal_card: string;
   cash: string;
   company_card: string;
+  /** online + unknown + other — so the lines above sum to the total. */
+  other_methods: string;
   needs_review_count: number;
   count: number;
 };
@@ -115,10 +124,11 @@ export function ReportDocument(data: ReportData) {
         <Text style={s.sub}>Period: {data.period}</Text>
 
         <Text style={s.sectionTitle}>Summary</Text>
-        <Summary label="Total reimbursable" value={data.totals.reimbursable} />
         <Summary label="Personal card expenses" value={data.totals.personal_card} />
         <Summary label="Cash expenses" value={data.totals.cash} />
         <Summary label="Company card expenses" value={data.totals.company_card} />
+        <Summary label="Online / other / unknown payment" value={data.totals.other_methods} />
+        <Summary label="Of the grand total, reimbursable to you" value={data.totals.reimbursable} />
         <Summary label="Items still needing review" value={String(data.totals.needs_review_count)} />
         <Summary label="Total items" value={String(data.totals.count)} />
 

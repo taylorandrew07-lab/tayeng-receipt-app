@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
-import { formatTTD } from "@/lib/month";
+import { formatMoney, formatTTD } from "@/lib/month";
+import { completenessOf } from "@/lib/reports/completeness";
+import { closeOutAppendix } from "@/lib/reports/closeout-appendix";
+import { slicePart } from "@/lib/reports/parts";
 import { loadCloseOut } from "@/lib/reconciliation/board-data";
 import type {
   ChargeRow,
@@ -31,6 +34,9 @@ export default async function ReconcilePage({
   const t = d.totals;
 
   const inflated = t.rawLineTotal - t.spendTotal;
+  // One button per PDF part, from the same list the route slices — so the
+  // buttons and the parts can never disagree.
+  const { parts } = slicePart(closeOutAppendix(d), "1");
 
   return (
     <div>
@@ -52,12 +58,15 @@ export default async function ReconcilePage({
             >
               Match them up →
             </Link>
-            <a
-              href="/api/reports/closeout"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Close-out PDF
-            </a>
+            {Array.from({ length: parts }, (_, i) => (
+              <a
+                key={i}
+                href={`/api/reports/closeout?part=${i + 1}`}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                {parts === 1 ? "Close-out PDF" : `Close-out PDF · part ${i + 1} of ${parts}`}
+              </a>
+            ))}
             <a
               href="/api/reports/closeout?appendix=none"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -97,10 +106,20 @@ export default async function ReconcilePage({
         )}
         <ControlTotal
           statements={d.statements}
-          withTotals={t.statementsWithTotals}
-          unreconciled={t.statementsUnreconciled}
-          names={t.unreconciledNames}
+          proven={t.statementsProven}
+          failing={t.statementsFailing}
+          names={t.failingNames}
         />
+        {/* Never folded into a TTD total — shown in their own currency. */}
+        {t.foreignCharges.length > 0 && (
+          <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+            Not included in the totals above, because they are not in TTD:{" "}
+            {t.foreignCharges
+              .map((f) => `${f.count} charge${f.count === 1 ? "" : "s"} · ${formatMoney(f.total, f.currency)}`)
+              .join(", ")}
+            .
+          </p>
+        )}
       </div>
 
       <nav className="mt-5 flex flex-wrap gap-2">
@@ -292,54 +311,58 @@ export default async function ReconcilePage({
  */
 function ControlTotal({
   statements,
-  withTotals,
-  unreconciled,
+  proven,
+  failing,
   names,
 }: {
   statements: StatementCoverageRow[];
-  withTotals: number;
-  unreconciled: number;
+  proven: number;
+  failing: number;
   names: string[];
 }) {
   if (statements.length === 0) return null;
 
-  if (unreconciled > 0) {
+  // The same wording the PDF prints, from lib/reports/completeness — so the
+  // screen and the accountant's copy can never tell two different stories.
+  const detail = (
+    <ul className="mt-1 space-y-0.5">
+      {statements.map((s) => (
+        <li key={s.id}>
+          {s.file_name.replace(/\.pdf$/i, "")}: {completenessOf(s).label}
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (failing > 0) {
     return (
-      <p className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-800">
+      <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-800">
         <strong>
-          {unreconciled} statement{unreconciled === 1 ? "" : "s"} do not add up
+          {failing} statement{failing === 1 ? "" : "s"} can&apos;t be trusted yet
         </strong>{" "}
-        — the charges read from {names.join(", ")} do not match the total printed on the
-        statement itself. A line has been missed. Re-upload or re-parse before relying on
-        this list.
-      </p>
+        — {names.join(", ")}. Either a line was missed, or the statement&apos;s own totals were
+        misread. Re-read {failing === 1 ? "it" : "them"} before relying on this list.
+        {detail}
+      </div>
     );
   }
 
-  if (withTotals === 0) {
+  if (proven === statements.length) {
     return (
-      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
-        None of your statements have had their printed totals read yet, so this list
-        can&apos;t prove every line was captured. Re-parse a statement to check it.
-      </p>
-    );
-  }
-
-  if (withTotals < statements.length) {
-    return (
-      <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
-        {withTotals} of {statements.length} statements check out against their own printed
-        totals. The other {statements.length - withTotals} don&apos;t print a total we could
-        read, so those can&apos;t be proven complete.
+      <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+        ✓ Every statement adds up — the charges listed here match the totals printed on the
+        statements themselves, to the cent.
       </p>
     );
   }
 
   return (
-    <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
-      ✓ Every statement adds up — the charges listed here match the totals printed on the
-      statements themselves, to the cent.
-    </p>
+    <div className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+      {proven} of {statements.length} statements are proven complete. For the rest the
+      printed total wasn&apos;t read, so this list can&apos;t yet prove every line was
+      captured. Re-read a statement to check it.
+      {detail}
+    </div>
   );
 }
 
@@ -383,7 +406,7 @@ function ChargeItem({
           </p>
         </div>
         <span className="whitespace-nowrap text-base font-semibold text-slate-900">
-          {formatTTD(Number(c.amount ?? 0))}
+          {formatMoney(Number(c.amount ?? 0), c.currency)}
         </span>
       </div>
       {open && (

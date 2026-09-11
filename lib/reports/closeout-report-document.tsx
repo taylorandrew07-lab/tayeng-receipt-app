@@ -15,7 +15,12 @@ export type CloseOutReportData = {
   generatedAt: string;
   period: string;
   periodInferred: boolean;
-  statements: { name: string; period: string; lines: number }[];
+  /**
+   * Per statement: its period and whether it is PROVEN complete. No line
+   * counts: those include charges closed internally, which this document
+   * must not reveal even indirectly.
+   */
+  statements: { name: string; period: string; completeness: string }[];
   needsReceipt: CloseOutLine[];
   orphanReceipts: CloseOutLine[];
   matched: CloseOutLine[];
@@ -32,6 +37,10 @@ export type CloseOutReportData = {
     sentTotal: string;
     bankTotal: string;
   };
+  /** Charges in another currency, which the TTD totals exclude. "" if none. */
+  foreignNote: string;
+  /** The completeness verdict for the whole document, in words. */
+  completenessNote: string;
   appendixNote: string;
 };
 
@@ -154,7 +163,7 @@ export function CloseOutReportDocument(d: CloseOutReportData) {
             <Text style={s.summaryLabel}>
               {st.name} · {st.period}
             </Text>
-            <Text style={s.summaryValue}>{st.lines} lines</Text>
+            <Text style={s.summaryValue}>{st.completeness}</Text>
           </View>
         ))}
 
@@ -164,11 +173,11 @@ export function CloseOutReportDocument(d: CloseOutReportData) {
           <Text style={s.summaryValue}>{d.totals.charges}</Text>
         </View>
         <View style={s.summaryRow}>
-          <Text style={s.summaryLabel}>Statement lines read</Text>
+          <Text style={s.summaryLabel}>Statement lines behind these charges</Text>
           <Text style={s.summaryValue}>{d.totals.rawLines}</Text>
         </View>
         <View style={s.summaryRow}>
-          <Text style={s.summaryLabel}>Total spend (each charge counted once)</Text>
+          <Text style={s.summaryLabel}>Total of charges listed (each counted once)</Text>
           <Text style={s.summaryValue}>{d.totals.spendTotal}</Text>
         </View>
         <View style={s.summaryRow}>
@@ -206,11 +215,10 @@ export function CloseOutReportDocument(d: CloseOutReportData) {
           </Text>
         </View>
 
-        <Text style={s.caution}>
-          A charge appearing on more than one statement is listed ONCE here and counted once.
-          Statement totals have not been read from the PDFs, so this list cannot yet prove
-          every printed line was captured.
-        </Text>
+        {/* Was hard-coded to say totals had "not been read", on every report,
+            whatever the truth. Now it states the actual verdict. */}
+        <Text style={s.caution}>{d.completenessNote}</Text>
+        {d.foreignNote ? <Text style={s.caution}>{d.foreignNote}</Text> : null}
 
         <View style={s.footer} fixed>
           <Text>
