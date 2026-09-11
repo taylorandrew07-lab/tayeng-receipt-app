@@ -91,23 +91,41 @@ export type TestDb = {
   sql<T = Record<string, unknown>>(query: string, params?: unknown[]): Promise<T[]>;
 };
 
-export async function freshDb(): Promise<TestDb> {
-  const db = new PGlite();
-  await db.exec(SUPABASE_STUB);
-
-  const files = readdirSync(MIGRATIONS_DIR)
+export const migrationFiles = () =>
+  readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
     .sort();
-  for (const f of files) {
+
+/**
+ * Apply migrations whose number is in (after, upTo], each atomically, exactly
+ * as scripts/db-migrate.mjs does. Used to stop part-way (to load data shaped
+ * like an older database) and to apply the rest afterwards.
+ */
+export async function applyMigrations(
+  db: PGlite,
+  range: { after?: string; upTo?: string } = {}
+): Promise<string[]> {
+  const applied: string[] = [];
+  for (const f of migrationFiles()) {
+    const v = f.slice(0, 4);
+    if (range.after && v <= range.after) continue;
+    if (range.upTo && v > range.upTo) continue;
     const body = readFileSync(join(MIGRATIONS_DIR, f), "utf8");
     try {
-      // Atomic per migration, exactly as scripts/db-migrate.mjs applies them.
       await db.exec(`begin;\n${body}\ncommit;`);
     } catch (e) {
       await db.exec("rollback;").catch(() => {});
       throw new Error(`migration ${f} failed: ${(e as Error).message}`);
     }
+    applied.push(f);
   }
+  return applied;
+}
+
+export async function freshDb(opts: { upTo?: string } = {}): Promise<TestDb> {
+  const db = new PGlite();
+  await db.exec(SUPABASE_STUB);
+  await applyMigrations(db, { upTo: opts.upTo });
 
   const sql = async <T,>(query: string, params: unknown[] = []) =>
     (await db.query<T>(query, params)).rows;

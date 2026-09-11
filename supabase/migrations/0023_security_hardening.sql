@@ -146,9 +146,10 @@ create trigger zz_same_owner before insert or update on vendors
   for each row execute function public.enforce_same_owner('default_category_id', 'categories');
 
 -- PRODUCTION INSPECTION. Triggers only guard FUTURE writes, so report -- do
--- not silently repair -- any existing row that already crosses owners. Live
--- data is a single real user, so the expected count is zero; anything else is
--- a finding for a person to look at, not something to rewrite automatically.
+-- not silently repair -- any existing row that already crosses owners.
+-- Inspected read-only on 2026-09-11 across BOTH production accounts: 0 such
+-- rows in every one of these five relationships. Any non-zero count here is a
+-- finding for a person to look at, never something to rewrite automatically.
 do $$
 declare n int;
 begin
@@ -192,8 +193,12 @@ end $$;
 -- Granting super_admin is no longer possible through the API at all. It is a
 -- database-level act, as the founding promotion in 0012 was.
 --
--- MIGRATION DEFECT: yes. PRODUCTION EXPOSURE: needs a second, plain admin
--- account to exist and act maliciously. Andrew is the only admin today.
+-- MIGRATION DEFECT: yes. PRODUCTION EXPOSURE: LATENT. Inspected read-only on
+-- 2026-09-11: production has two accounts -- the super_admin and one approved
+-- PLAIN admin. Under 0012 that admin could never touch the super_admin, but
+-- could promote any future sign-up to admin, or demote/un-approve any other
+-- admin, by calling the API directly. No such change has been made (no other
+-- accounts exist), so nothing needs repairing -- only preventing.
 -- ----------------------------------------------------------------------------
 alter policy "profiles_update_admin" on profiles
   using (
