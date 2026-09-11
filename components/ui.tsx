@@ -11,7 +11,11 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-6 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
+      {/* The title keeps a real width. The action group used to be shrink-0,
+          so a header with several buttons squeezed the title into a sliver
+          ("Close- / Out", one word per line). Now the ACTIONS give way and
+          wrap onto another line instead. */}
+      <div className="min-w-0 sm:min-w-[14rem] sm:flex-1">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[1.75rem]">
           {title}
         </h1>
@@ -21,7 +25,9 @@ export function PageHeader({
           </p>
         )}
       </div>
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      {action && (
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">{action}</div>
+      )}
     </div>
   );
 }

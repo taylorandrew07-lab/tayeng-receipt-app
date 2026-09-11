@@ -75,7 +75,8 @@ export default async function ReceiptEditPage({
       {receipt.duplicate_of && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm text-amber-800">
-            ⚠️ This was flagged as a <strong>possible duplicate</strong> of another
+            ⚠️ This was flagged as a <strong>possible duplicate</strong>{" "}
+            of another
             receipt. If it&apos;s a separate purchase (e.g. two fuel fill-ups for the
             same amount), mark it as not a duplicate.
           </p>

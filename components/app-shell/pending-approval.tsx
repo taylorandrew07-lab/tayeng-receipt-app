@@ -14,7 +14,8 @@ export function PendingApproval({ email }: { email: string }) {
         />
         <h1 className="text-xl font-bold text-slate-900">Account awaiting approval</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Your account <span className="font-medium text-slate-700">{email}</span> has
+          Your account <span className="font-medium text-slate-700">{email}</span>{" "}
+          has
           been created and is waiting for an administrator to approve access.
           You&apos;ll be able to sign in normally once it&apos;s approved.
         </p>
