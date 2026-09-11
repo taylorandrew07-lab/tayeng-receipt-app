@@ -15,7 +15,12 @@ export function normalizeVendor(name: string | null | undefined): string {
     .trim();
 }
 
-const CARD_TYPE_TO_PAYMENT: Record<Card["card_type"], PaymentMethod> = {
+/**
+ * A card's type decides how a purchase on it was paid. Shared by extraction
+ * (below) and by saveReceipt, so a correction can never contradict the rule
+ * the receipt was first classified under.
+ */
+export const CARD_TYPE_TO_PAYMENT: Record<Card["card_type"], PaymentMethod> = {
   personal: "personal_card",
   company: "company_card",
   cash: "cash",

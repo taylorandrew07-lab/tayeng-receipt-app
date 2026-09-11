@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeVendor } from "@/lib/classification/classify";
+import { CARD_TYPE_TO_PAYMENT, normalizeVendor } from "@/lib/classification/classify";
+import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
 import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 import type { PaymentMethod } from "@/lib/types";
@@ -66,6 +67,31 @@ export async function saveReceipt(
 
   if (!PAYMENT_METHODS.includes(payment_method)) {
     return { error: "Invalid payment method." };
+  }
+
+  // The card and the payment type must agree.
+  //
+  // The editor offers both as independent fields, so it was possible to pick
+  // the company card and mark the payment "Personal card". `reimbursable` is
+  // derived from payment_method, so that receipt was then CLAIMED BACK on the
+  // reimbursable report while ALSO sitting on the company card statement — the
+  // same money counted twice. Refuse rather than guess which one was meant.
+  if (card_id) {
+    const { data: card } = await supabase
+      .from("cards")
+      .select("nickname, card_type")
+      .eq("id", card_id)
+      .maybeSingle();
+    if (!card) return { error: "That card could not be found. Pick it again." };
+    const implied = CARD_TYPE_TO_PAYMENT[card.card_type as keyof typeof CARD_TYPE_TO_PAYMENT];
+    if (implied && implied !== payment_method) {
+      return {
+        error:
+          `"${card.nickname}" is set up as ${PAYMENT_LABEL[implied].toLowerCase()}, but the payment ` +
+          `type says ${PAYMENT_LABEL[payment_method].toLowerCase()}. Change one so they agree — this ` +
+          `decides whether the receipt is claimed back or goes on the company card.`,
+      };
+    }
   }
 
   // --- Bill-back (charge back to a client or vessel) -------------------

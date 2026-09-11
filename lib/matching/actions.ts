@@ -5,12 +5,13 @@ import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
+import { matchReceipts, type MatchReceipt, type MatchTxn } from "@/lib/matching/match";
 import {
-  matchReceipts,
-  withinReceiptWindow,
-  type MatchReceipt,
-  type MatchTxn,
-} from "@/lib/matching/match";
+  chargeIneligibility,
+  receiptIneligibility,
+  selectCandidates,
+  selectOpenLines,
+} from "@/lib/matching/eligibility";
 
 /** What a matching run did, in the words the user needs to read. */
 export type MatchRunSummary = {
@@ -23,7 +24,11 @@ export type MatchRunSummary = {
   autoConfirmed?: number;
 };
 
-type TxnRow = MatchTxn & { charge_id: string | null; statement_id: string };
+type TxnRow = MatchTxn & {
+  charge_id: string | null;
+  statement_id: string;
+  created_at: string | null;
+};
 type MatchRow = {
   receipt_id: string | null;
   statement_transaction_id: string | null;
@@ -111,6 +116,7 @@ async function runMatchPass(
         .from("statement_coverage")
         .select("id, effective_start, effective_end")
         .order("effective_end", { ascending: false })
+        .order("id", { ascending: true })
         .range(from, to)
     )
   );
@@ -142,8 +148,14 @@ async function runMatchPass(
     asPage<TxnRow>(
       supabase
         .from("statement_transactions")
-        .select("id, txn_date, description, amount, card_last4, charge_id, statement_id")
+        .select(
+          "id, txn_date, description, amount, card_last4, charge_id, statement_id, created_at"
+        )
         .in("statement_id", scopedIds)
+        // A unique ORDER BY is required for paging: without one Postgres may
+        // return rows in a different order per page, skipping or repeating
+        // rows across the 1000-row boundary.
+        .order("id", { ascending: true })
         .range(from, to)
     )
   );
@@ -164,6 +176,7 @@ async function runMatchPass(
       supabase
         .from("receipt_statement_matches")
         .select("receipt_id, statement_transaction_id, charge_id, confirmed, rejected_at")
+        .order("id", { ascending: true })
         .range(from, to)
     )
   );
@@ -193,34 +206,63 @@ async function runMatchPass(
   // the receipt for a company card charge. Confirming one locks it behind two
   // unique indexes and removes it from the reimbursable pool -- money Andrew
   // is owed, quietly gone.
-  const receiptRows = await fetchAll<MatchReceipt>((from, to) =>
-    asPage<MatchReceipt>(
+  type CandidateRow = MatchReceipt & {
+    status: string | null;
+    duplicate_of: string | null;
+    payment_method: string | null;
+    sent: boolean | null;
+  };
+  // The query narrows the pool for speed; receiptIneligibility() then applies
+  // the ONE shared rule, so the run, manual attach and confirm cannot disagree.
+  const receiptRows = await fetchAll<CandidateRow>((from, to) =>
+    asPage<CandidateRow>(
       supabase
         .from("receipts")
-        .select("id, receipt_date, vendor_name, ttd_amount, card_last4")
+        .select(
+          "id, receipt_date, vendor_name, ttd_amount, card_last4, status, duplicate_of, payment_method, sent"
+        )
         .not("ttd_amount", "is", null)
         .eq("status", "confirmed")
         .is("duplicate_of", null)
-        .not("payment_method", "in", "(cash,personal_card)")
+        .order("id", { ascending: true })
         .range(from, to)
     )
   );
 
-  const receipts = receiptRows.filter(
-    (r) =>
-      !confirmedReceiptIds.has(r.id) &&
-      withinReceiptWindow(
-        r.receipt_date,
-        periodStart,
-        periodEnd,
-        settings.windowBefore,
-        settings.windowAfter
-      )
-  );
+  // Andrew's rule is inside: a SENT receipt always carries over regardless of
+  // age; the date window only limits the hunt for NEW matches.
+  const receipts = selectCandidates(receiptRows, {
+    confirmedReceiptIds,
+    periodStart,
+    periodEnd,
+    windowBefore: settings.windowBefore,
+    windowAfter: settings.windowAfter,
+  });
 
-  const openTxns = transactions.filter(
-    (t) => !confirmedTxnIds.has(t.id) && !(t.charge_id && confirmedChargeIds.has(t.charge_id))
-  );
+  // Closed charges -- bank fees and purchases closed by hand -- are not
+  // hunted for until a person reopens them. Matching a receipt to one would
+  // pull that receipt off the list of receipts still waiting for a charge.
+  const chargeIds = [...new Set(transactions.map((t) => t.charge_id).filter(Boolean))] as string[];
+  const closedChargeIds = new Set<string>();
+  for (let i = 0; i < chargeIds.length; i += 200) {
+    const { data, error } = await supabase
+      .from("charges")
+      .select("id, no_receipt_expected")
+      .in("id", chargeIds.slice(i, i + 200));
+    if (error) return { ok: false, message: `Could not read the charges: ${error.message}` };
+    for (const c of (data ?? []) as { id: string; no_receipt_expected: boolean }[]) {
+      if (chargeIneligibility(c) !== null) closedChargeIds.add(c.id);
+    }
+  }
+
+  // ONE line per real charge. Overlapping statements repeat a charge as
+  // separate rows; scoring every copy spent receipts on duplicate copies and
+  // could offer two receipts for one charge.
+  const openTxns = selectOpenLines(transactions, {
+    confirmedTxnIds,
+    confirmedChargeIds,
+    closedChargeIds,
+  });
 
   const chargeOf = new Map(transactions.map((t) => [t.id, t.charge_id]));
   const pairKey = (txnId: string, receiptId: string) =>
@@ -253,7 +295,11 @@ async function runMatchPass(
   const surviving = await fetchAll<{ receipt_id: string | null; charge_id: string | null }>(
     (from, to) =>
       asPage(
-        supabase.from("receipt_statement_matches").select("receipt_id, charge_id").range(from, to)
+        supabase
+          .from("receipt_statement_matches")
+          .select("receipt_id, charge_id")
+          .order("id", { ascending: true })
+          .range(from, to)
       )
   );
   const stillThere = new Set(
@@ -394,6 +440,12 @@ export async function attachReceiptToCharge(
       message: "That line has no charge record yet. Re-run matching and try again.",
     };
 
+  // Re-check against the rows AS THEY ARE NOW, not as they were when the page
+  // was drawn. The picker only offers eligible receipts, but a page can be
+  // stale, and a server action is callable directly.
+  const why = await currentIneligibility(supabase, receiptId, txn.charge_id);
+  if (why) return { ok: false, message: why };
+
   // Is this charge already covered? unique(charge_id) where confirmed would
   // reject the insert anyway; catching it here gives a usable message.
   const { data: existing } = await supabase
@@ -478,6 +530,13 @@ export async function confirmMatch(formData: FormData): Promise<void> {
     .single();
   if (!row) backToMatching(statementId, "That suggestion no longer exists.");
 
+  // A suggestion can be days old. The receipt may since have been re-marked
+  // as cash, flagged a duplicate, or the charge closed -- so re-check now.
+  if (row.receipt_id && row.charge_id) {
+    const why = await currentIneligibility(supabase, row.receipt_id, row.charge_id);
+    if (why) backToMatching(statementId, why);
+  }
+
   if (row.charge_id) {
     const { data: holder } = await supabase
       .from("receipt_statement_matches")
@@ -555,4 +614,121 @@ export async function rejectMatch(formData: FormData): Promise<void> {
   revalidatePath("/matching");
   revalidatePath("/reconcile");
   backToMatching(statementId, "Rejected — it won't be suggested again.");
+}
+
+/**
+ * The ONE eligibility rule (lib/matching/eligibility.ts), applied to the rows
+ * as they are at the moment of writing. Returns the reason, or null.
+ */
+async function currentIneligibility(
+  supabase: Db,
+  receiptId: string,
+  chargeId: string
+): Promise<string | null> {
+  const [{ data: receipt }, { data: charge }] = await Promise.all([
+    supabase
+      .from("receipts")
+      .select("status, duplicate_of, ttd_amount, payment_method")
+      .eq("id", receiptId)
+      .maybeSingle(),
+    supabase.from("charges").select("no_receipt_expected").eq("id", chargeId).maybeSingle(),
+  ]);
+  if (!receipt) return "That receipt could not be found.";
+  if (!charge) return "That charge could not be found.";
+  return (
+    receiptIneligibility(
+      receipt as {
+        status: string | null;
+        duplicate_of: string | null;
+        ttd_amount: number | null;
+        payment_method: string | null;
+      }
+    ) ?? chargeIneligibility(charge as { no_receipt_expected: boolean })
+  );
+}
+
+export type ChargeDecisionResult = { ok: boolean; message: string } | null;
+
+/**
+ * Close a charge as needing no receipt, or reopen a closed one.
+ *
+ * Until now a closed charge could not be reopened from the app at all. Both
+ * directions are recorded (0024) so a person's decision is never mistaken for
+ * the fee regex's -- and never silently re-closed by a later auto-flag pass.
+ *
+ * Closing by hand always files the charge as a PERSONAL decision
+ * (fee_auto_flagged = false): internal housekeeping, kept out of the
+ * accountant's PDF, per Andrew's standing instruction.
+ */
+export async function setChargeClosed(
+  _prev: ChargeDecisionResult,
+  formData: FormData
+): Promise<ChargeDecisionResult> {
+  const chargeId = String(formData.get("charge_id") ?? "");
+  const close = String(formData.get("close") ?? "") === "1";
+  if (!chargeId) return { ok: false, message: "No charge selected." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, message: "You are signed out. Please sign in again." };
+
+  const now = new Date().toISOString();
+
+  if (close) {
+    const { data: holder } = await supabase
+      .from("receipt_statement_matches")
+      .select("id")
+      .eq("charge_id", chargeId)
+      .eq("confirmed", true)
+      .maybeSingle();
+    if (holder) {
+      return {
+        ok: false,
+        message: "That charge already has a receipt attached. Unmatch the receipt first.",
+      };
+    }
+  }
+
+  const { data: changed, error } = await supabase
+    .from("charges")
+    .update(
+      close
+        ? {
+            no_receipt_expected: true,
+            fee_auto_flagged: false,
+            closed_by_user_at: now,
+            reopened_at: null,
+          }
+        : { no_receipt_expected: false, fee_auto_flagged: false, reopened_at: now }
+    )
+    .eq("id", chargeId)
+    .select("id");
+  if (error) return { ok: false, message: `Could not update the charge: ${error.message}` };
+  // RLS filters a row it will not let you touch down to ZERO rows, with no
+  // error. Treating that as success is how a button "works" and does nothing.
+  if (!changed || changed.length === 0) {
+    return { ok: false, message: "That charge could not be found." };
+  }
+
+  if (close) {
+    // A closed charge wants no receipt, so its open suggestions are moot and
+    // would otherwise keep showing against the receipts they point at.
+    await supabase
+      .from("receipt_statement_matches")
+      .delete()
+      .eq("charge_id", chargeId)
+      .eq("confirmed", false)
+      .is("rejected_at", null);
+  }
+
+  revalidatePath("/reconcile");
+  revalidatePath("/reconcile/board");
+  return {
+    ok: true,
+    message: close
+      ? "Closed — no receipt needed. This stays off the accountant's report."
+      : "Reopened — it's back on your list of charges needing a receipt.",
+  };
 }
