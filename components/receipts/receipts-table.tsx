@@ -10,7 +10,8 @@ import {
   setReceiptsPaid,
   dismissDuplicate,
 } from "@/lib/receipts/actions";
-import { PAYMENT_LABEL, STATUS_BADGE, STATUS_LABEL } from "@/components/receipts/labels";
+import { PAYMENT_LABEL } from "@/components/receipts/labels";
+import { receiptStage, STAGE_BADGE } from "@/lib/receipts/stage";
 import { formatMonthKey, formatTTD } from "@/lib/month";
 import { toast } from "@/components/toast";
 import type { Receipt } from "@/lib/types";
@@ -69,18 +70,22 @@ function sortVal(r: ReceiptRow, key: SortKey): string | number {
 
 export function ReceiptsTable({
   rows,
+  matchedIds = [],
   months,
   selected,
   initialKind = "all",
   initialPaid = "all",
 }: {
   rows: ReceiptRow[];
+  /** Receipts attached to a statement charge. */
+  matchedIds?: string[];
   months: string[];
   selected: string;
   initialKind?: string;
   initialPaid?: string;
 }) {
   const router = useRouter();
+  const matched = useMemo(() => new Set(matchedIds), [matchedIds]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [kind, setKind] = useState<KindFilter>(
     (["reimbursable", "company", "cash", "personal"].includes(initialKind)
@@ -192,9 +197,11 @@ export function ReceiptsTable({
     if (!window.confirm(`Delete ${ids.length} receipt${ids.length === 1 ? "" : "s"}? This cannot be undone.`))
       return;
     startTransition(async () => {
-      await deleteReceipts(ids);
-      setPicked(new Set());
+      const res = await deleteReceipts(ids);
+      // Keep the selection when something failed, so it can be retried.
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 
@@ -202,9 +209,10 @@ export function ReceiptsTable({
     const ids = [...picked];
     if (ids.length === 0) return;
     startTransition(async () => {
-      await setReceiptsSent(ids, sent);
-      setPicked(new Set());
+      const res = await setReceiptsSent(ids, sent);
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 
@@ -212,9 +220,10 @@ export function ReceiptsTable({
     const ids = [...picked];
     if (ids.length === 0) return;
     startTransition(async () => {
-      await setReceiptsPaid(ids, paid);
-      setPicked(new Set());
+      const res = await setReceiptsPaid(ids, paid);
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 
@@ -465,19 +474,18 @@ export function ReceiptsTable({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-col items-start gap-1">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}>
-                          {STATUS_LABEL[r.status]}
-                        </span>
-                        {r.paid && (
-                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                            💰 Paid
-                          </span>
-                        )}
-                        {r.sent && (
-                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
-                            ✓ Sent
-                          </span>
-                        )}
+                        {(() => {
+                          // One stage that says what is left to do — see
+                          // lib/receipts/stage.ts for why "Confirmed" wasn't enough.
+                          const stage = receiptStage(r, matched.has(r.id));
+                          return (
+                            <span
+                              className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${STAGE_BADGE[stage.tone]}`}
+                            >
+                              {stage.label}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-right">

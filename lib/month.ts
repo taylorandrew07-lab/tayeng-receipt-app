@@ -39,3 +39,17 @@ export function formatTTD(amount: number | null | undefined): string {
     minimumFractionDigits: 2,
   }).format(n);
 }
+
+/**
+ * Format an amount in ITS OWN currency.
+ *
+ * formatTTD labels whatever it is given as TTD. Handing it a statement line
+ * that is really in USD prints the raw USD figure as if it were TTD — a
+ * silent 6.8x understatement. Anything whose currency is not certain to be
+ * TTD goes through here.
+ */
+export function formatMoney(amount: number | null | undefined, currency: string | null | undefined): string {
+  const cur = (currency ?? "TTD").toUpperCase();
+  if (cur === "TTD") return formatTTD(amount);
+  return `${cur} ${Number(amount ?? 0).toFixed(2)}`;
+}

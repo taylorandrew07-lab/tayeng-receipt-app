@@ -1,10 +1,19 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
-import { formatTTD } from "@/lib/month";
+import { formatMoney, formatTTD } from "@/lib/month";
+import { completenessOf } from "@/lib/reports/completeness";
+import { closeOutAppendix } from "@/lib/reports/closeout-appendix";
+import { slicePart } from "@/lib/reports/parts";
 import { loadCloseOut } from "@/lib/reconciliation/board-data";
-import type { ChargeRow, OrphanRow } from "@/lib/reconciliation/types";
+import type {
+  ChargeRow,
+  OrphanRow,
+  StatementCoverageRow,
+} from "@/lib/reconciliation/types";
 import { AttachReceipt } from "@/components/matching/attach-receipt";
+import { RunMatchingButton } from "@/components/reconcile/run-matching-button";
+import { ChargeDecision } from "@/components/reconcile/charge-decision";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +35,9 @@ export default async function ReconcilePage({
   const t = d.totals;
 
   const inflated = t.rawLineTotal - t.spendTotal;
+  // One button per PDF part, from the same list the route slices — so the
+  // buttons and the parts can never disagree.
+  const { parts } = slicePart(closeOutAppendix(d), "1");
 
   return (
     <div>
@@ -40,18 +52,22 @@ export default async function ReconcilePage({
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <RunMatchingButton />
             <Link
               href="/reconcile/board"
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
             >
               Match them up →
             </Link>
-            <a
-              href="/api/reports/closeout"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Close-out PDF
-            </a>
+            {Array.from({ length: parts }, (_, i) => (
+              <a
+                key={i}
+                href={`/api/reports/closeout?part=${i + 1}`}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                {parts === 1 ? "Close-out PDF" : `Close-out PDF · part ${i + 1} of ${parts}`}
+              </a>
+            ))}
             <a
               href="/api/reports/closeout?appendix=none"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -89,10 +105,22 @@ export default async function ReconcilePage({
             statements. Each one is counted once here.
           </p>
         )}
-        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
-          Statement totals not yet read from the PDFs — this list can&apos;t yet prove every
-          line was captured.
-        </p>
+        <ControlTotal
+          statements={d.statements}
+          proven={t.statementsProven}
+          failing={t.statementsFailing}
+          names={t.failingNames}
+        />
+        {/* Never folded into a TTD total — shown in their own currency. */}
+        {t.foreignCharges.length > 0 && (
+          <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+            Not included in the totals above, because they are not in TTD:{" "}
+            {t.foreignCharges
+              .map((f) => `${f.count} charge${f.count === 1 ? "" : "s"} · ${formatMoney(f.total, f.currency)}`)
+              .join(", ")}
+            .
+          </p>
+        )}
       </div>
 
       <nav className="mt-5 flex flex-wrap gap-2">
@@ -213,18 +241,50 @@ export default async function ReconcilePage({
             {d.bankCharges.map((c) => (
               <li
                 key={c.charge_id}
-                className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
               >
-                <span className="text-slate-700">{c.description ?? "—"}</span>
+                <span className="min-w-0 flex-1 text-slate-700">{c.description ?? "—"}</span>
                 <span className="whitespace-nowrap text-slate-500">
-                  {c.txn_date ?? "—"} · {formatTTD(Number(c.amount ?? 0))}
+                  {c.txn_date ?? "—"} · {formatMoney(Number(c.amount ?? 0), c.currency)}
                 </span>
+                <ChargeDecision chargeId={c.charge_id} close={false} label="Reopen" />
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-400">
-            Fees and interest are taken off the work list automatically. If something here
-            does need a receipt, tell me and I&apos;ll add a one-tap way to put it back.
+            Fees and interest are taken off the work list automatically. If one of these does
+            need a receipt, tap Reopen and it goes back on your list.
+          </p>
+        </details>
+      )}
+
+      {/* Real purchases YOU closed without a receipt. Same database flag as the
+          bank charges above, completely different meaning — so never shown in
+          the same list, and never sent to the accountant as a bank fee. */}
+      {d.clearedByHand.length > 0 && (
+        <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+            ✓ Closed off by you — no receipt needed · {d.clearedByHand.length} ·{" "}
+            {formatTTD(t.clearedByHandValue)}
+          </summary>
+          <ul className="mt-3 space-y-1">
+            {d.clearedByHand.map((c) => (
+              <li
+                key={c.charge_id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm"
+              >
+                <span className="min-w-0 flex-1 text-slate-700">{c.description ?? "—"}</span>
+                <span className="whitespace-nowrap text-slate-500">
+                  {c.txn_date ?? "—"} · {formatMoney(Number(c.amount ?? 0), c.currency)}
+                </span>
+                <ChargeDecision chargeId={c.charge_id} close={false} label="Reopen" />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-400">
+            These are real purchases you decided to close without chasing paperwork. They
+            are kept here for your own records and are <strong>not</strong> included in the
+            close-out PDF you give the accountant.
           </p>
         </details>
       )}
@@ -237,6 +297,74 @@ export default async function ReconcilePage({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Can this list prove it is complete?
+ *
+ * Until 0022 the app had no answer: it read transactions and nothing else, so a
+ * line the parser skipped looked exactly like a line that was never there. Now
+ * each statement carries its own printed purchases total and the extracted
+ * lines are checked against it.
+ *
+ * Three states, deliberately distinct — "we did not check" must never read as
+ * "we checked and it was fine".
+ */
+function ControlTotal({
+  statements,
+  proven,
+  failing,
+  names,
+}: {
+  statements: StatementCoverageRow[];
+  proven: number;
+  failing: number;
+  names: string[];
+}) {
+  if (statements.length === 0) return null;
+
+  // The same wording the PDF prints, from lib/reports/completeness — so the
+  // screen and the accountant's copy can never tell two different stories.
+  const detail = (
+    <ul className="mt-1 space-y-0.5">
+      {statements.map((s) => (
+        <li key={s.id}>
+          {s.file_name.replace(/\.pdf$/i, "")}: {completenessOf(s).label}
+        </li>
+      ))}
+    </ul>
+  );
+
+  if (failing > 0) {
+    return (
+      <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-800">
+        <strong>
+          {failing} statement{failing === 1 ? "" : "s"} can&apos;t be trusted yet
+        </strong>{" "}
+        — {names.join(", ")}. Either a line was missed, or the statement&apos;s own totals were
+        misread. Re-read {failing === 1 ? "it" : "them"} before relying on this list.
+        {detail}
+      </div>
+    );
+  }
+
+  if (proven === statements.length) {
+    return (
+      <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+        ✓ Every statement adds up — the charges listed here match the totals printed on the
+        statements themselves, to the cent.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+      {proven} of {statements.length} statements are proven complete. For the rest the
+      printed total wasn&apos;t read, so this list can&apos;t yet prove every line was
+      captured. Re-read a statement to check it.
+      {detail}
     </div>
   );
 }
@@ -281,15 +409,21 @@ function ChargeItem({
           </p>
         </div>
         <span className="whitespace-nowrap text-base font-semibold text-slate-900">
-          {formatTTD(Number(c.amount ?? 0))}
+          {formatMoney(Number(c.amount ?? 0), c.currency)}
         </span>
       </div>
       {open && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex flex-wrap items-start justify-end gap-2">
           <AttachReceipt
             txnId={c.canonical_txn_id}
             txnAmount={c.amount != null ? Number(c.amount) : null}
             receipts={attachable}
+          />
+          <ChargeDecision
+            chargeId={c.charge_id}
+            close
+            label="No receipt needed"
+            confirmText="Close this charge without a receipt? It comes off your list and stays off the accountant's report. You can reopen it any time."
           />
         </div>
       )}

@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { DeleteStatementButton } from "@/components/statements/delete-statement-button";
+import { RereadStatementButton } from "@/components/statements/reread-button";
 import { formatTTD } from "@/lib/month";
+import { coverageLabel, isCovered, loadChargeCoverage } from "@/lib/reconciliation/coverage";
 import type { Statement, StatementTransaction } from "@/lib/types";
 
 export default async function StatementDetailPage({
@@ -28,6 +30,7 @@ export default async function StatementDetailPage({
     .eq("statement_id", id)
     .order("txn_date", { ascending: true });
   const rows = (txns ?? []) as StatementTransaction[];
+  const coverage = await loadChargeCoverage(supabase, rows.map((t) => t.charge_id));
   const total = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0);
 
   return (
@@ -40,7 +43,8 @@ export default async function StatementDetailPage({
             : `${rows.length} transactions · ${formatTTD(total)}`
         }
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <RereadStatementButton statementId={st.id} />
             <Link
               href={`/matching?statement=${st.id}`}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
@@ -73,7 +77,7 @@ export default async function StatementDetailPage({
                 <th className="px-4 py-3 font-semibold">Description</th>
                 <th className="px-4 py-3 font-semibold">Card</th>
                 <th className="px-4 py-3 text-right font-semibold">Amount</th>
-                <th className="px-4 py-3 font-semibold">Matched</th>
+                <th className="px-4 py-3 font-semibold">Receipt</th>
               </tr>
             </thead>
             <tbody>
@@ -90,11 +94,21 @@ export default async function StatementDetailPage({
                     {t.amount != null ? `${t.currency} ${Number(t.amount).toFixed(2)}` : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    {t.is_matched ? (
-                      <span className="text-xs font-medium text-green-700">Yes</span>
-                    ) : (
-                      <span className="text-xs text-slate-400">No</span>
-                    )}
+                    {/* By CHARGE, not by line: is_matched is true only on the
+                        one copy a receipt was attached to, so every other
+                        statement carrying the same charge said "No". */}
+                    {(() => {
+                      const c = t.charge_id ? coverage.get(t.charge_id) : undefined;
+                      return (
+                        <span
+                          className={`whitespace-nowrap text-xs font-medium ${
+                            isCovered(c) ? "text-green-700" : "text-amber-700"
+                          }`}
+                        >
+                          {coverageLabel(c)}
+                        </span>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

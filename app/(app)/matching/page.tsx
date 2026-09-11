@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui";
 import { runMatching, confirmMatch, rejectMatch } from "@/lib/matching/actions";
 import { AttachReceipt } from "@/components/matching/attach-receipt";
 import { formatTTD } from "@/lib/month";
+import { coverageLabel, isCovered, loadChargeCoverage } from "@/lib/reconciliation/coverage";
 import type { Receipt, Statement, StatementTransaction } from "@/lib/types";
 
 type MatchRow = {
@@ -13,6 +14,7 @@ type MatchRow = {
   confirmed: boolean;
   receipt_id: string | null;
   statement_transaction_id: string | null;
+  rejected_at: string | null;
   receipts: Pick<
     Receipt,
     "vendor_name" | "ttd_amount" | "receipt_date" | "currency" | "amount"
@@ -22,10 +24,10 @@ type MatchRow = {
 export default async function MatchingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statement?: string }>;
+  searchParams: Promise<{ statement?: string; msg?: string }>;
 }) {
   const supabase = await createClient();
-  const { statement: statementId } = await searchParams;
+  const { statement: statementId, msg } = await searchParams;
 
   if (!statementId) return <StatementPicker />;
 
@@ -50,51 +52,40 @@ export default async function MatchingPage({
     ? await supabase
         .from("receipt_statement_matches")
         .select(
-          "id, status, confidence, confirmed, receipt_id, statement_transaction_id, receipts(vendor_name, ttd_amount, receipt_date, currency, amount)"
+          "id, status, confidence, confirmed, rejected_at, receipt_id, statement_transaction_id, receipts(vendor_name, ttd_amount, receipt_date, currency, amount)"
         )
         .in("statement_transaction_id", txnIds)
     : { data: [] };
   const matches = (matchData ?? []) as unknown as MatchRow[];
 
-  const matchedTxnIds = new Set(
-    matches.map((m) => m.statement_transaction_id).filter(Boolean) as string[]
-  );
   const confirmed = matches.filter((m) => m.confirmed);
-  const possible = matches.filter((m) => !m.confirmed);
+  // A rejected pairing is kept (0016's rejected_at) so no run resurrects it —
+  // which also means it must not be offered here again.
+  const possible = matches.filter((m) => !m.confirmed && !m.rejected_at);
+
+  // Lines already SHOWN in "Matched" or "Possible". A REJECTED row must not
+  // count: it is in neither list, so counting it here dropped the line from
+  // "Missing" as well and the charge vanished from this screen entirely the
+  // moment Andrew said "Not a match".
+  const matchedTxnIds = new Set(
+    [...confirmed, ...possible]
+      .map((m) => m.statement_transaction_id)
+      .filter(Boolean) as string[]
+  );
 
   // A charge carried on several overlapping statements has ONE receipt, attached
-  // to whichever copy was matched first. Looking only at this statement's copy
-  // reports a covered charge as "missing" — so resolve at the charge level.
-  const chargeIds = [...new Set(txns.map((t) => t.charge_id).filter(Boolean) as string[])];
-  const { data: chargeMatchData } = chargeIds.length
-    ? await supabase
-        .from("receipt_statement_matches")
-        .select("charge_id, receipt_id, receipts(vendor_name, ttd_amount, receipt_date, sent)")
-        .in("charge_id", chargeIds)
-        .eq("confirmed", true)
-    : { data: [] };
-  const coverByCharge = new Map(
-    ((chargeMatchData ?? []) as unknown as {
-      charge_id: string;
-      receipt_id: string;
-      receipts: {
-        vendor_name: string | null;
-        ttd_amount: number | null;
-        receipt_date: string | null;
-        sent: boolean;
-      } | null;
-    }[])
-      .filter((m) => m.charge_id)
-      .map((m) => [m.charge_id, m])
+  // to whichever copy was matched first — so coverage is resolved by CHARGE,
+  // from the same view the close-out list reads (lib/reconciliation/coverage).
+  const coverage = await loadChargeCoverage(supabase, txns.map((t) => t.charge_id));
+  const coverOf = (t: StatementTransaction) =>
+    t.charge_id ? coverage.get(t.charge_id) : undefined;
+
+  // Covered elsewhere: a receipt on another statement's copy, or closed.
+  const coveredElsewhere = txns.filter(
+    (t) => !matchedTxnIds.has(t.id) && isCovered(coverOf(t))
   );
-
-  const isCovered = (t: StatementTransaction) =>
-    Boolean(t.charge_id && coverByCharge.has(t.charge_id));
-
-  // Covered by a receipt attached to another statement's copy of the charge.
-  const coveredElsewhere = txns.filter((t) => !matchedTxnIds.has(t.id) && isCovered(t));
-  // Genuinely has no receipt anywhere.
-  const missing = txns.filter((t) => !matchedTxnIds.has(t.id) && !isCovered(t));
+  // Genuinely has no receipt anywhere and is not closed.
+  const missing = txns.filter((t) => !matchedTxnIds.has(t.id) && !isCovered(coverOf(t)));
 
   // Receipts with no confirmed match anywhere = receipts lacking a statement line.
   const { data: confirmedAll } = await supabase
@@ -139,6 +130,12 @@ export default async function MatchingPage({
           </div>
         }
       />
+
+      {msg && (
+        <p className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          {msg}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Matched" value={confirmed.length} tone="good" />
@@ -202,6 +199,7 @@ export default async function MatchingPage({
                           name="txn_id"
                           value={m.statement_transaction_id ?? ""}
                         />
+                        <input type="hidden" name="statement_id" value={st.id} />
                         <button className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700">
                           Confirm
                         </button>
@@ -213,6 +211,7 @@ export default async function MatchingPage({
                           name="txn_id"
                           value={m.statement_transaction_id ?? ""}
                         />
+                        <input type="hidden" name="statement_id" value={st.id} />
                         <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
                           Not a match
                         </button>
@@ -259,6 +258,7 @@ export default async function MatchingPage({
                         name="txn_id"
                         value={m.statement_transaction_id ?? ""}
                       />
+                      <input type="hidden" name="statement_id" value={st.id} />
                       <button className="text-xs text-slate-400 hover:text-red-700">
                         Unmatch
                       </button>
@@ -273,14 +273,14 @@ export default async function MatchingPage({
 
       {/* Already covered via another statement's copy of the same charge */}
       {coveredElsewhere.length > 0 && (
-        <Section title="Already covered — receipt is on another statement">
+        <Section title="Already covered — nothing to chase">
           <p className="mb-3 text-sm text-slate-500">
-            These charges also appear on a different statement, where the receipt is already
-            attached. Nothing to do — they are not missing.
+            Either the receipt is attached to this charge on another statement, or the
+            charge is closed as needing no receipt. They are not missing.
           </p>
           <ul className="space-y-2">
             {coveredElsewhere.map((t) => {
-              const cover = t.charge_id ? coverByCharge.get(t.charge_id) : undefined;
+              const cover = coverOf(t);
               return (
                 <li
                   key={t.id}
@@ -288,13 +288,19 @@ export default async function MatchingPage({
                 >
                   <span className="text-slate-900">{t.description ?? "—"}</span>
                   <span className="flex items-center gap-3">
-                    <Link
-                      href={cover?.receipt_id ? `/receipts/${cover.receipt_id}` : "#"}
-                      className="text-xs font-medium text-green-800 underline"
-                    >
-                      {cover?.receipts?.vendor_name ?? "Receipt"}
-                      {cover?.receipts?.sent ? " · already sent" : ""} ↗
-                    </Link>
+                    {cover?.receipt_id ? (
+                      <Link
+                        href={`/receipts/${cover.receipt_id}`}
+                        className="text-xs font-medium text-green-800 underline"
+                      >
+                        {cover.receipt_vendor ?? "Receipt"}
+                        {cover.receipt_sent ? " · already sent" : ""} ↗
+                      </Link>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-600">
+                        {coverageLabel(cover)}
+                      </span>
+                    )}
                     <span className="whitespace-nowrap text-slate-500">
                       {t.txn_date ?? "—"} ·{" "}
                       {t.amount != null ? formatTTD(Number(t.amount)) : "—"}

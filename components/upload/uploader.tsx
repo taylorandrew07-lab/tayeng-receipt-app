@@ -120,8 +120,14 @@ export function Uploader() {
           <ul className="divide-y divide-slate-100">
             {items.map((it) => (
               <li key={it.id} className="flex items-center justify-between gap-3 py-3">
-                <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                  {it.name}
+                <span className="min-w-0 flex-1 text-sm text-slate-700">
+                  <span className="block truncate">{it.name}</span>
+                  {/* Visible on a phone: the reasons, not just the verdict. */}
+                  {it.status === "done" && it.warnings && it.warnings.length > 0 && (
+                    <span className="mt-0.5 block text-xs text-amber-800">
+                      {it.warnings.join(" · ")}
+                    </span>
+                  )}
                 </span>
                 <StatusBadge item={it} />
                 {it.status === "done" && it.receiptId && (
@@ -161,8 +167,10 @@ function StatusBadge({ item }: { item: QueueItem }) {
     return <span className="text-xs text-blue-600">Reading…</span>;
   if (item.status === "error")
     return (
-      <span className="text-xs text-red-600" title={item.message}>
-        Failed
+      // The reason is TEXT, not a hover tooltip: there is no hover on a phone,
+      // so "Failed" used to be all Andrew could ever see.
+      <span className="block max-w-[16rem] text-right text-xs text-red-700">
+        <strong>Failed.</strong> {item.message}
       </span>
     );
   return item.result === "needs_review" ? (

@@ -3,11 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeVendor } from "@/lib/classification/classify";
+import { CARD_TYPE_TO_PAYMENT, normalizeVendor } from "@/lib/classification/classify";
+import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
+import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
+import { removeReceiptsSafely, type RemoveClient } from "@/lib/receipts/remove";
+import { receiptMoneyProblem } from "@/lib/receipts/validate";
 import type { PaymentMethod } from "@/lib/types";
 
 export type ReceiptFormState = { error?: string } | undefined;
+
+/** Outcome of a bulk action, so the screen can say what actually happened. */
+export type { BulkResult } from "@/lib/receipts/remove";
+import type { BulkResult } from "@/lib/receipts/remove";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "personal_card",
@@ -67,6 +75,36 @@ export async function saveReceipt(
     return { error: "Invalid payment method." };
   }
 
+  // Saving CONFIRMS the receipt, and a confirmed receipt feeds matching, the
+  // close-out list and every report — so its money must be sound first.
+  const moneyProblem = receiptMoneyProblem({ currency, amount, ttd_amount, tax_amount, receipt_date });
+  if (moneyProblem) return { error: moneyProblem };
+
+  // The card and the payment type must agree.
+  //
+  // The editor offers both as independent fields, so it was possible to pick
+  // the company card and mark the payment "Personal card". `reimbursable` is
+  // derived from payment_method, so that receipt was then CLAIMED BACK on the
+  // reimbursable report while ALSO sitting on the company card statement — the
+  // same money counted twice. Refuse rather than guess which one was meant.
+  if (card_id) {
+    const { data: card } = await supabase
+      .from("cards")
+      .select("nickname, card_type")
+      .eq("id", card_id)
+      .maybeSingle();
+    if (!card) return { error: "That card could not be found. Pick it again." };
+    const implied = CARD_TYPE_TO_PAYMENT[card.card_type as keyof typeof CARD_TYPE_TO_PAYMENT];
+    if (implied && implied !== payment_method) {
+      return {
+        error:
+          `"${card.nickname}" is set up as ${PAYMENT_LABEL[implied].toLowerCase()}, but the payment ` +
+          `type says ${PAYMENT_LABEL[payment_method].toLowerCase()}. Change one so they agree — this ` +
+          `decides whether the receipt is claimed back or goes on the company card.`,
+      };
+    }
+  }
+
   // --- Bill-back (charge back to a client or vessel) -------------------
   const billBack = String(formData.get("bill_back") ?? "") === "yes";
   let bill_back_type: "client" | "vessel" | null = null;
@@ -86,7 +124,7 @@ export async function saveReceipt(
     bill_back_normalized = normalizeVendor(nameRaw);
   }
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("receipts")
     .update({
       vendor_name,
@@ -107,9 +145,16 @@ export async function saveReceipt(
       bill_back_normalized,
       status: "confirmed",
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { error: error.message };
+  // RLS filters a row you may not touch down to ZERO rows and reports no
+  // error, so "no error" is not "saved". Say so rather than redirect away as
+  // if it worked.
+  if (!saved || saved.length === 0) {
+    return { error: "That receipt could not be saved — it may have been deleted. Reload and try again." };
+  }
 
   // --- Learn from the correction --------------------------------------
   if (vendor_name && category_id) {
@@ -145,36 +190,27 @@ export async function saveReceipt(
 
 /**
  * Deletes many receipts at once (bulk "delete selected" / "start over").
- * Removes their stored files first. RLS scopes everything to the user.
+ * Rows first, then ONLY the files of rows that were really deleted — see
+ * lib/receipts/remove.ts. RLS scopes everything to the user.
  */
-export async function deleteReceipts(ids: string[]): Promise<void> {
+export async function deleteReceipts(ids: string[]): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-
-  // Capture paths, delete the rows (cascades receipt_files), then best-effort
-  // remove the blobs — surfacing (not swallowing) any storage failure.
-  const { data: files } = await supabase
-    .from("receipt_files")
-    .select("storage_path")
-    .in("receipt_id", ids);
-  await supabase.from("receipts").delete().in("id", ids);
-  if (files && files.length > 0) {
-    const { error: rmErr } = await supabase.storage
-      .from("documents")
-      .remove(files.map((f) => f.storage_path));
-    if (rmErr) console.error("storage cleanup failed (bulk delete):", rmErr.message);
-  }
-
+  const removed = await removeReceiptsSafely(supabase as unknown as RemoveClient, ids);
   revalidatePath("/receipts");
   revalidatePath("/review");
+  revalidatePath("/reconcile");
+  return removed;
 }
 
 /**
  * Re-checks ALL receipts for duplicates and flags later copies. Two receipts
- * are considered the same if they share a file name, OR a vendor + TTD amount,
- * OR an original amount + card last 4. The earliest upload is kept as the
- * original; later ones are flagged (duplicate_of) and sent to Needs Review.
+ * are considered the same if their files have identical CONTENT, OR the same
+ * vendor + TTD amount + date, OR the same original amount + card last 4 +
+ * date (lib/receipts/duplicates.ts) — never merely the same file name. The
+ * earliest upload is kept as the original; later ones are flagged
+ * (duplicate_of) and sent to Needs Review.
  * Returns how many were newly flagged.
  */
 export async function findDuplicates(): Promise<{ flagged: number }> {
@@ -185,14 +221,10 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
   } = await supabase.auth.getUser();
   if (!user) return { flagged: 0 };
 
-  const { data } = await supabase
-    .from("receipts")
-    .select(
-      "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(file_name)"
-    )
-    .order("created_at", { ascending: true });
-
-  const rows = (data ?? []) as {
+  // Paginated: PostgREST silently caps a response at 1000 rows, and a
+  // duplicate scan that sees an arbitrary subset of the corpus flags the wrong
+  // receipts as copies -- and misses real ones -- with no error raised.
+  const rows = await fetchAll<{
     id: string;
     created_at: string;
     receipt_date: string | null;
@@ -202,8 +234,19 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     card_last4: string | null;
     duplicate_of: string | null;
     not_duplicate: boolean;
-    receipt_files: { file_name: string }[];
-  }[];
+    receipt_files: { content_sha256: string | null }[];
+  }>((from, to) =>
+    asPage(
+      supabase
+        .from("receipts")
+        .select(
+          "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(content_sha256)"
+        )
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    )
+  );
 
   // Group ids by each duplicate key (rows are in upload order).
   const groups = new Map<string, string[]>();
@@ -214,7 +257,8 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
       ttd_amount: r.ttd_amount,
       amount: r.amount,
       card_last4: r.card_last4,
-      fileName: r.receipt_files?.[0]?.file_name ?? null,
+      // By CONTENT (0027). A shared file name is not evidence of anything.
+      contentHash: r.receipt_files?.[0]?.content_sha256 ?? null,
     })) {
       const arr = groups.get(key) ?? [];
       arr.push(r.id);
@@ -256,31 +300,63 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
  * Marks receipts as sent (archived) or not. "Sent" means they've been
  * submitted/handled, so they show as archived and can be filtered out.
  */
-export async function setReceiptsSent(ids: string[], sent: boolean): Promise<void> {
+
+export async function setReceiptsSent(ids: string[], sent: boolean): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("receipts")
     .update({ sent, sent_at: sent ? new Date().toISOString() : null })
-    .in("id", ids);
+    .in("id", ids)
+    .select("id");
   revalidatePath("/receipts");
+  revalidatePath("/reconcile");
+  return bulkOutcome(error, data, ids.length, sent ? "marked as sent" : "marked as not sent");
+}
+
+/**
+ * "Sent" and "paid" are the two facts the close-out and the reimbursement
+ * claim rest on. Previously both actions returned nothing, so a failure
+ * looked exactly like success and the receipt stayed on the list unexplained.
+ */
+function bulkOutcome(
+  error: { message: string } | null,
+  data: unknown[] | null,
+  wanted: number,
+  verb: string
+): BulkResult {
+  if (error) return { ok: false, message: `Nothing was ${verb}: ${error.message}`, count: 0 };
+  const n = data?.length ?? 0;
+  if (n === wanted) {
+    return { ok: true, message: `${n} receipt${n === 1 ? "" : "s"} ${verb}.`, count: n };
+  }
+  return {
+    ok: false,
+    message:
+      n === 0
+        ? `Nothing was ${verb} — those receipts may have been deleted.`
+        : `Only ${n} of ${wanted} were ${verb}.`,
+    count: n,
+  };
 }
 
 /**
  * Marks receipts paid / unpaid. Paid reimbursables drop off the dashboard's
  * outstanding total (the money has been reimbursed).
  */
-export async function setReceiptsPaid(ids: string[], paid: boolean): Promise<void> {
+export async function setReceiptsPaid(ids: string[], paid: boolean): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("receipts")
     .update({ paid, paid_at: paid ? new Date().toISOString() : null })
-    .in("id", ids);
+    .in("id", ids)
+    .select("id");
   revalidatePath("/receipts");
   revalidatePath("/dashboard");
+  return bulkOutcome(error, data, ids.length, paid ? "marked as paid" : "marked as unpaid");
 }
 
 export async function dismissDuplicate(formData: FormData): Promise<void> {
@@ -301,19 +377,12 @@ export async function deleteReceipt(formData: FormData): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
 
-  const { data: files } = await supabase
-    .from("receipt_files")
-    .select("storage_path")
-    .eq("receipt_id", id);
-  await supabase.from("receipts").delete().eq("id", id);
-  if (files && files.length > 0) {
-    const { error: rmErr } = await supabase.storage
-      .from("documents")
-      .remove(files.map((f) => f.storage_path));
-    if (rmErr) console.error("storage cleanup failed (delete receipt):", rmErr.message);
-  }
-
+  const res = await removeReceiptsSafely(supabase as unknown as RemoveClient, [id]);
   revalidatePath("/receipts");
   revalidatePath("/review");
+  revalidatePath("/reconcile");
+  // On failure go BACK to the receipt and say why, instead of landing on the
+  // list as though it had worked.
+  if (!res.ok) redirect(`/receipts/${id}?msg=${encodeURIComponent(res.message)}`);
   redirect("/receipts");
 }

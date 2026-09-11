@@ -10,6 +10,15 @@ type Item = {
   status: "queued" | "uploading" | "parsing" | "done" | "error";
   count?: number;
   message?: string;
+  /**
+   * Set as soon as the statement row exists. A retry then only RE-READS it.
+   * Without this, pressing the button again after a failed read uploaded the
+   * file a second time under a new id — which is how a duplicate statement
+   * ("andrew 5.pdf") ended up in the live data.
+   */
+  statementId?: string;
+  /** false = read, but the statement could not be proven complete. */
+  proven?: boolean | null;
 };
 
 function safeName(name: string): string {
@@ -51,38 +60,48 @@ export function StatementUploader() {
     for (const item of items) {
       if (item.status === "done") continue;
       try {
-        update(item.id, { status: "uploading" });
-        const sid = crypto.randomUUID();
-        const path = `${user.id}/statements/${sid}/${safeName(item.file.name)}`;
+        let sid = item.statementId;
+        if (!sid) {
+          update(item.id, { status: "uploading", message: undefined });
+          sid = crypto.randomUUID();
+          const path = `${user.id}/statements/${sid}/${safeName(item.file.name)}`;
 
-        const { error: upErr } = await supabase.storage
-          .from("documents")
-          .upload(path, item.file, {
-            contentType: item.file.type || undefined,
-            upsert: true,
+          const { error: upErr } = await supabase.storage
+            .from("documents")
+            .upload(path, item.file, {
+              contentType: item.file.type || undefined,
+              upsert: true,
+            });
+          if (upErr) throw new Error(upErr.message);
+
+          const { error: sErr } = await supabase.from("statements").insert({
+            id: sid,
+            user_id: user.id,
+            storage_path: path,
+            file_name: item.file.name,
           });
-        if (upErr) throw new Error(upErr.message);
+          if (sErr) throw new Error(sErr.message);
+          // From here on a retry re-reads THIS statement; it never re-uploads.
+          update(item.id, { statementId: sid });
+        }
 
-        const { error: sErr } = await supabase.from("statements").insert({
-          id: sid,
-          user_id: user.id,
-          storage_path: path,
-          file_name: item.file.name,
-        });
-        if (sErr) throw new Error(sErr.message);
-
-        update(item.id, { status: "parsing" });
+        update(item.id, { status: "parsing", message: undefined });
         const res = await fetch("/api/statements/parse", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ statementId: sid }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "parsing failed");
+        if (!res.ok) throw new Error(json.error ?? "Reading the statement failed.");
 
-        update(item.id, { status: "done", count: json.count });
+        update(item.id, {
+          status: "done",
+          count: json.count,
+          message: json.message,
+          proven: json.reconciled ?? null,
+        });
       } catch (e) {
-        update(item.id, { status: "error", message: String(e) });
+        update(item.id, { status: "error", message: (e as Error).message ?? String(e) });
       }
     }
     setBusy(false);
@@ -131,7 +150,11 @@ export function StatementUploader() {
             disabled={busy}
             className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
-            {busy ? "Reading…" : "Upload & read statements"}
+            {busy
+              ? "Reading…"
+              : items.some((i) => i.status === "error")
+                ? "Try again"
+                : "Upload & read statements"}
           </button>
         </div>
       )}
@@ -145,13 +168,20 @@ function Badge({ item }: { item: Item }) {
   if (item.status === "parsing") return <span className="text-xs text-blue-600">Reading…</span>;
   if (item.status === "error")
     return (
-      <span className="text-xs text-red-600" title={item.message}>
-        Failed
+      // The reason is TEXT, not a hover tooltip: there is no hover on a phone,
+      // so "Failed" used to be all Andrew could ever see.
+      <span className="block max-w-[16rem] text-right text-xs text-red-700">
+        <strong>Failed.</strong> {item.message}
       </span>
     );
+  // The completeness verdict, in words — not just a line count.
   return (
-    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-      {item.count ?? 0} transactions
+    <span
+      className={`block max-w-[16rem] text-right text-xs ${
+        item.proven === false ? "text-red-700" : item.proven ? "text-green-800" : "text-amber-800"
+      }`}
+    >
+      <strong>{item.count ?? 0} charges read.</strong> {item.message}
     </span>
   );
 }

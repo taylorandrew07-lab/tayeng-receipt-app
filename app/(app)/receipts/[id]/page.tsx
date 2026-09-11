@@ -12,10 +12,10 @@ export default async function ReceiptEditPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; msg?: string }>;
 }) {
   const { id } = await params;
-  const { from } = await searchParams;
+  const { from, msg } = await searchParams;
   // Opened from the review queue? Send the user back there after saving.
   const cameFromReview = from === "review";
   const backHref = cameFromReview ? "/review" : "/receipts";
@@ -64,6 +64,13 @@ export default async function ReceiptEditPage({
           </Link>
         }
       />
+      {/* A failed delete returns here with the reason, rather than landing on
+          the receipts list as though it had worked. */}
+      {msg && (
+        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {msg}
+        </p>
+      )}
 
       {receipt.duplicate_of && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">

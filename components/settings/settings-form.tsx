@@ -11,7 +11,14 @@ export function SettingsForm({
   profile: Pick<Profile, "full_name" | "company_name">;
   settings: Pick<
     UserSettings,
-    "usd_to_ttd_rate" | "date_tolerance_days" | "amount_tolerance_pct"
+    | "usd_to_ttd_rate"
+    | "date_tolerance_days"
+    | "amount_tolerance_pct"
+    | "reconcile_statement_count"
+    | "receipt_window_days_before"
+    | "receipt_window_days_after"
+    | "charge_match_days"
+    | "auto_confirm_enabled"
   >;
 }) {
   const [state, action, pending] = useActionState<SettingsState, FormData>(
@@ -68,6 +75,67 @@ export function SettingsForm({
             />
           </Field>
         </div>
+      </section>
+
+      {/* The scope of a close-out run. These columns have existed since July
+          but nothing read or wrote them, so the rules could not be seen or
+          changed from inside the app. Worded as questions, not column names. */}
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-slate-900">Closing out statements</h2>
+        <p className="mb-4 mt-1 text-sm text-slate-500">
+          How far the app looks when it goes hunting for receipts.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="How many statements to check at once (0 = all of them)">
+            <input
+              name="reconcile_statement_count"
+              inputMode="numeric"
+              defaultValue={String(settings.reconcile_statement_count)}
+              className={cls}
+            />
+          </Field>
+          <Field label="Treat statement lines this many days apart as the same charge">
+            <input
+              name="charge_match_days"
+              inputMode="numeric"
+              defaultValue={String(settings.charge_match_days)}
+              className={cls}
+            />
+          </Field>
+          <Field label="Look for receipts up to this many days BEFORE the statement starts">
+            <input
+              name="receipt_window_days_before"
+              inputMode="numeric"
+              defaultValue={String(settings.receipt_window_days_before)}
+              className={cls}
+            />
+          </Field>
+          <Field label="...and up to this many days AFTER it ends">
+            <input
+              name="receipt_window_days_after"
+              inputMode="numeric"
+              defaultValue={String(settings.receipt_window_days_after)}
+              className={cls}
+            />
+          </Field>
+        </div>
+
+        <label className="mt-4 flex items-start gap-3 rounded-lg bg-slate-50 p-3">
+          <input
+            type="checkbox"
+            name="auto_confirm_enabled"
+            defaultChecked={settings.auto_confirm_enabled}
+            className="mt-0.5 h-4 w-4 accent-emerald-600"
+          />
+          <span className="text-sm text-slate-700">
+            <strong>Let a run tick things off by itself when it is certain.</strong>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Off is safer, and is how it is meant to run. With this on, a confident match
+              is confirmed without asking you — which once closed a real open charge using
+              a receipt from 77 days away.
+            </span>
+          </span>
+        </label>
       </section>
 
       {state?.error && (
