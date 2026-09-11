@@ -13,6 +13,7 @@ import type {
 } from "@/lib/reconciliation/types";
 import { AttachReceipt } from "@/components/matching/attach-receipt";
 import { RunMatchingButton } from "@/components/reconcile/run-matching-button";
+import { ChargeDecision } from "@/components/reconcile/charge-decision";
 
 export const dynamic = "force-dynamic";
 
@@ -240,18 +241,19 @@ export default async function ReconcilePage({
             {d.bankCharges.map((c) => (
               <li
                 key={c.charge_id}
-                className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-sm"
               >
-                <span className="text-slate-700">{c.description ?? "—"}</span>
+                <span className="min-w-0 flex-1 text-slate-700">{c.description ?? "—"}</span>
                 <span className="whitespace-nowrap text-slate-500">
-                  {c.txn_date ?? "—"} · {formatTTD(Number(c.amount ?? 0))}
+                  {c.txn_date ?? "—"} · {formatMoney(Number(c.amount ?? 0), c.currency)}
                 </span>
+                <ChargeDecision chargeId={c.charge_id} close={false} label="Reopen" />
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-400">
-            Fees and interest are taken off the work list automatically. If something here
-            does need a receipt, tell me and I&apos;ll add a one-tap way to put it back.
+            Fees and interest are taken off the work list automatically. If one of these does
+            need a receipt, tap Reopen and it goes back on your list.
           </p>
         </details>
       )}
@@ -269,12 +271,13 @@ export default async function ReconcilePage({
             {d.clearedByHand.map((c) => (
               <li
                 key={c.charge_id}
-                className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm"
               >
-                <span className="text-slate-700">{c.description ?? "—"}</span>
+                <span className="min-w-0 flex-1 text-slate-700">{c.description ?? "—"}</span>
                 <span className="whitespace-nowrap text-slate-500">
-                  {c.txn_date ?? "—"} · {formatTTD(Number(c.amount ?? 0))}
+                  {c.txn_date ?? "—"} · {formatMoney(Number(c.amount ?? 0), c.currency)}
                 </span>
+                <ChargeDecision chargeId={c.charge_id} close={false} label="Reopen" />
               </li>
             ))}
           </ul>
@@ -410,11 +413,17 @@ function ChargeItem({
         </span>
       </div>
       {open && (
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex flex-wrap items-start justify-end gap-2">
           <AttachReceipt
             txnId={c.canonical_txn_id}
             txnAmount={c.amount != null ? Number(c.amount) : null}
             receipts={attachable}
+          />
+          <ChargeDecision
+            chargeId={c.charge_id}
+            close
+            label="No receipt needed"
+            confirmText="Close this charge without a receipt? It comes off your list and stays off the accountant's report. You can reopen it any time."
           />
         </div>
       )}

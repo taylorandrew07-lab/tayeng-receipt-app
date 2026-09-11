@@ -408,7 +408,19 @@ export async function runMatching(formData: FormData): Promise<void> {
   revalidatePath("/reconcile");
 }
 
-export type AttachResult = { ok: boolean; message: string } | null;
+/** What a pairing replaced, so it can be put back exactly. null = it was new. */
+export type PriorPair = {
+  confirmed: boolean;
+  status: string;
+  rejected_at: string | null;
+} | null;
+
+export type AttachResult = {
+  ok: boolean;
+  message: string;
+  /** Present on success: everything undoAttach needs to reverse it. */
+  undo?: { matchId: string; prior: PriorPair };
+} | null;
 
 /**
  * Manually attach a receipt the matcher did not find. Attaches to the CHARGE,
@@ -479,26 +491,49 @@ export async function attachReceiptToCharge(
       message: "That receipt is already attached to a different charge.",
     };
 
-  const { error } = await supabase.from("receipt_statement_matches").upsert(
-    {
-      user_id: user.id,
-      receipt_id: receiptId,
-      statement_transaction_id: txnId,
-      charge_id: txn.charge_id,
-      status: "matched",
-      confidence: 100, // a person chose this
-      confirmed: true,
-      // A person has now chosen this pair, which overrides an earlier rejection.
-      rejected_at: null,
-    },
-    { onConflict: "receipt_id,charge_id" }
-  );
-  if (error) return { ok: false, message: `Could not attach: ${error.message}` };
+  // Remember what this pair was BEFORE, so Undo can restore it exactly — a
+  // brand-new pair is deleted, an existing suggestion or rejection goes back
+  // to what it was.
+  const { data: before } = await supabase
+    .from("receipt_statement_matches")
+    .select("confirmed, status, rejected_at")
+    .eq("receipt_id", receiptId)
+    .eq("charge_id", txn.charge_id)
+    .maybeSingle();
+  const prior: PriorPair = before
+    ? {
+        confirmed: Boolean(before.confirmed),
+        status: String(before.status),
+        rejected_at: (before.rejected_at as string | null) ?? null,
+      }
+    : null;
+
+  const { data: row, error } = await supabase
+    .from("receipt_statement_matches")
+    .upsert(
+      {
+        user_id: user.id,
+        receipt_id: receiptId,
+        statement_transaction_id: txnId,
+        charge_id: txn.charge_id,
+        status: "matched",
+        confidence: 100, // a person chose this
+        confirmed: true,
+        // A person has now chosen this pair, which overrides an earlier rejection.
+        rejected_at: null,
+      },
+      { onConflict: "receipt_id,charge_id" }
+    )
+    .select("id")
+    .single();
+  if (error || !row) {
+    return { ok: false, message: `Could not attach: ${error?.message ?? "nothing was saved"}` };
+  }
 
   revalidatePath("/matching");
   revalidatePath("/reconcile");
   revalidatePath("/reconcile/board");
-  return { ok: true, message: "Receipt attached." };
+  return { ok: true, message: "Receipt attached.", undo: { matchId: row.id as string, prior } };
 }
 
 function backToMatching(statementId: string, message: string): never {
@@ -736,4 +771,59 @@ export async function setChargeClosed(
       ? "Closed — no receipt needed. This stays off the accountant's report."
       : "Reopened — it's back on your list of charges needing a receipt.",
   };
+}
+
+const MATCH_STATUSES = [
+  "matched",
+  "possible_match",
+  "unmatched_receipt",
+  "missing_receipt",
+  "needs_review",
+];
+
+/**
+ * Reverse a manual pairing EXACTLY — the Undo on the pairing board and on
+ * "Attach a receipt". A mis-tap on a phone used to be permanent from those
+ * screens.
+ *
+ * `prior` is what attachReceiptToCharge reported the pair was beforehand: null
+ * means the pairing created the row, so it is deleted; otherwise the row is
+ * put back to that state. RLS confines both to the caller's own rows, and the
+ * values are checked, so a forged `prior` can do nothing a direct write could
+ * not.
+ */
+export async function undoAttach(
+  matchId: string,
+  prior: PriorPair
+): Promise<{ ok: boolean; message: string }> {
+  if (!matchId) return { ok: false, message: "Nothing to undo." };
+  if (prior && !MATCH_STATUSES.includes(prior.status)) {
+    return { ok: false, message: "Nothing to undo." };
+  }
+  const supabase = await createClient();
+
+  const { data, error } = prior
+    ? await supabase
+        .from("receipt_statement_matches")
+        .update({
+          confirmed: prior.confirmed,
+          status: prior.status,
+          rejected_at: prior.rejected_at,
+        })
+        .eq("id", matchId)
+        .select("id")
+    : await supabase
+        .from("receipt_statement_matches")
+        .delete()
+        .eq("id", matchId)
+        .select("id");
+  if (error) return { ok: false, message: `Could not undo: ${error.message}` };
+  if (!data || data.length === 0) {
+    return { ok: false, message: "That match has already changed, so there was nothing to undo." };
+  }
+
+  revalidatePath("/matching");
+  revalidatePath("/reconcile");
+  revalidatePath("/reconcile/board");
+  return { ok: true, message: "Undone — both are back on their lists." };
 }

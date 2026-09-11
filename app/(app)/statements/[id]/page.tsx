@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { DeleteStatementButton } from "@/components/statements/delete-statement-button";
+import { RereadStatementButton } from "@/components/statements/reread-button";
 import { formatTTD } from "@/lib/month";
 import { coverageLabel, isCovered, loadChargeCoverage } from "@/lib/reconciliation/coverage";
 import type { Statement, StatementTransaction } from "@/lib/types";
@@ -42,7 +43,8 @@ export default async function StatementDetailPage({
             : `${rows.length} transactions · ${formatTTD(total)}`
         }
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <RereadStatementButton statementId={st.id} />
             <Link
               href={`/matching?statement=${st.id}`}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"

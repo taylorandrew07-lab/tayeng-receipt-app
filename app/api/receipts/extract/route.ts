@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractDocument } from "@/lib/extraction/extract";
@@ -96,7 +97,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
   }
 
-  const base64 = Buffer.from(await blob.arrayBuffer()).toString("base64");
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  const base64 = bytes.toString("base64");
+  // What the document CONTAINS — the duplicate check compares this, never the
+  // file name (0027). Stored now so later uploads can be compared against it.
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  await supabase
+    .from("receipt_files")
+    .update({ content_sha256: contentHash })
+    .eq("receipt_id", receiptId)
+    .eq("storage_path", file.storage_path);
 
   // Extract with Claude, then classify with the user's rules.
   let extraction;
@@ -162,7 +172,7 @@ export async function POST(request: NextRequest) {
         ttd_amount: result.ttd_amount,
         amount: result.amount,
         card_last4: result.card_last4,
-        fileName: file.file_name,
+        contentHash,
       })
     );
 
@@ -175,30 +185,40 @@ export async function POST(request: NextRequest) {
       ttd_amount: number | null;
       amount: number | null;
       card_last4: string | null;
-      receipt_files: { file_name: string }[];
+      receipt_files: { content_sha256: string | null }[];
     }>((from, to) =>
       asPage(
         supabase
           .from("receipts")
           .select(
-            "id, receipt_date, vendor_name, ttd_amount, amount, card_last4, receipt_files(file_name)"
+            "id, receipt_date, vendor_name, ttd_amount, amount, card_last4, receipt_files(content_sha256)"
           )
           .neq("id", receiptId)
           .is("duplicate_of", null)
+          // "The earliest upload stays the original" — which needs an ORDER.
+          // Unordered, .find() below returned an arbitrary match, and paging
+          // without a total order could skip rows across the 1000 boundary.
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
           .range(from, to)
       )
     );
 
-    const match = candidates.find((c) =>
-      duplicateKeys({
-        receipt_date: c.receipt_date,
-        vendor_name: c.vendor_name,
-        ttd_amount: c.ttd_amount,
-        amount: c.amount,
-        card_last4: c.card_last4,
-        fileName: c.receipt_files?.[0]?.file_name ?? null,
-      }).some((k) => newKeys.has(k))
-    );
+    // Compare against EVERY file a candidate has, not just its first.
+    const keysOf = (c: (typeof candidates)[number]) => {
+      const hashes = (c.receipt_files ?? []).map((f) => f.content_sha256);
+      return (hashes.length ? hashes : [null]).flatMap((h) =>
+        duplicateKeys({
+          receipt_date: c.receipt_date,
+          vendor_name: c.vendor_name,
+          ttd_amount: c.ttd_amount,
+          amount: c.amount,
+          card_last4: c.card_last4,
+          contentHash: h,
+        })
+      );
+    };
+    const match = candidates.find((c) => keysOf(c).some((k) => newKeys.has(k)));
     if (match) duplicateOf = match.id;
   }
 

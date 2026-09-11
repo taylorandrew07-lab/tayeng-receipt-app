@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { attachReceiptToCharge } from "@/lib/matching/actions";
-import { formatTTD } from "@/lib/month";
+import { attachReceiptToCharge, undoAttach, type PriorPair } from "@/lib/matching/actions";
+import { formatMoney, formatTTD } from "@/lib/month";
 
 export type BoardCharge = {
   charge_id: string;
@@ -65,6 +65,15 @@ export function PairingBoard({
   });
   const [error, setError] = useState<string | null>(null);
   const [matched, setMatched] = useState(0);
+  // A tap PROPOSES a pair; nothing is written until "Match them". On a phone a
+  // mis-tap used to pair instantly, with no look at the receipt and no way back.
+  const [proposal, setProposal] = useState<{ c: BoardCharge; r: BoardReceipt } | null>(null);
+  const [lastMatch, setLastMatch] = useState<{
+    c: BoardCharge;
+    r: BoardReceipt;
+    matchId: string;
+    prior: PriorPair;
+  } | null>(null);
 
   const openCharges = useMemo(
     () => charges.filter((c) => !done.charges.has(c.charge_id)),
@@ -91,23 +100,55 @@ export function PairingBoard({
     });
   }, [charge, openReceipts]);
 
+  /** Tap or drop: propose the pair, so Andrew can look before committing. */
   function pair(c: BoardCharge, r: BoardReceipt) {
     setError(null);
+    setProposal({ c, r });
+  }
+
+  function commit() {
+    if (!proposal) return;
+    const { c, r } = proposal;
     const fd = new FormData();
     fd.set("txn_id", c.canonical_txn_id);
     fd.set("receipt_id", r.receipt_id);
     startTransition(async () => {
       const res = await attachReceiptToCharge(null, fd);
-      if (res?.ok) {
+      if (res?.ok && res.undo) {
         setDone((d) => ({
           charges: new Set(d.charges).add(c.charge_id),
           receipts: new Set(d.receipts).add(r.receipt_id),
         }));
         setSelected(null);
+        setProposal(null);
         setMatched((n) => n + 1);
+        setLastMatch({ c, r, ...res.undo });
         router.refresh();
       } else {
+        setProposal(null);
         setError(res?.message ?? "Could not match those.");
+      }
+    });
+  }
+
+  function undo() {
+    if (!lastMatch) return;
+    const { c, r, matchId, prior } = lastMatch;
+    startTransition(async () => {
+      const res = await undoAttach(matchId, prior);
+      if (res.ok) {
+        setDone((d) => {
+          const charges = new Set(d.charges);
+          const receipts = new Set(d.receipts);
+          charges.delete(c.charge_id);
+          receipts.delete(r.receipt_id);
+          return { charges, receipts };
+        });
+        setMatched((n) => Math.max(0, n - 1));
+        setLastMatch(null);
+        router.refresh();
+      } else {
+        setError(res.message);
       }
     });
   }
@@ -135,6 +176,60 @@ export function PairingBoard({
           </p>
         )}
         {error && <p className="mt-1 text-xs font-medium text-red-700">{error}</p>}
+
+        {/* Look before committing: nothing is written until "Match them". */}
+        {proposal && (
+          <div className="mt-2 rounded-lg border border-slate-900 bg-slate-50 p-3">
+            <p className="text-sm text-slate-900">
+              Match <strong>{proposal.c.description ?? "this charge"}</strong>{" "}
+              {formatMoney(Number(proposal.c.amount ?? 0), proposal.c.currency)} with{" "}
+              <strong>{proposal.r.vendor_name ?? "this receipt"}</strong>{" "}
+              {proposal.r.ttd_amount != null ? formatTTD(Number(proposal.r.ttd_amount)) : ""}?
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a
+                href={`/receipts/${proposal.r.receipt_id}`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                View receipt ↗
+              </a>
+              <button
+                type="button"
+                onClick={commit}
+                disabled={pending}
+                className="min-h-11 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {pending ? "Matching…" : "Match them"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProposal(null)}
+                disabled={pending}
+                className="min-h-11 rounded-lg px-4 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!proposal && lastMatch && (
+          <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-green-50 px-3 py-2">
+            <p className="text-sm text-green-900">
+              Matched {lastMatch.c.description ?? "charge"} ↔ {lastMatch.r.vendor_name ?? "receipt"}.
+            </p>
+            <button
+              type="button"
+              onClick={undo}
+              disabled={pending}
+              className="min-h-11 rounded-lg border border-green-300 bg-white px-4 text-sm font-semibold text-green-900 hover:bg-green-100 disabled:opacity-60"
+            >
+              Undo
+            </button>
+          </div>
+        )}
       </div>
 
       {allDone ? (
@@ -178,7 +273,7 @@ export function PairingBoard({
                       {c.txn_date ?? "no date"}
                     </p>
                     <p className="mt-1 text-sm font-bold sm:text-base">
-                      {formatTTD(Number(c.amount ?? 0))}
+                      {formatMoney(Number(c.amount ?? 0), c.currency)}
                     </p>
                     {c.copies > 1 && (
                       <p

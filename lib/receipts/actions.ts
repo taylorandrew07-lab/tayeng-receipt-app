@@ -206,9 +206,11 @@ export async function deleteReceipts(ids: string[]): Promise<BulkResult> {
 
 /**
  * Re-checks ALL receipts for duplicates and flags later copies. Two receipts
- * are considered the same if they share a file name, OR a vendor + TTD amount,
- * OR an original amount + card last 4. The earliest upload is kept as the
- * original; later ones are flagged (duplicate_of) and sent to Needs Review.
+ * are considered the same if their files have identical CONTENT, OR the same
+ * vendor + TTD amount + date, OR the same original amount + card last 4 +
+ * date (lib/receipts/duplicates.ts) — never merely the same file name. The
+ * earliest upload is kept as the original; later ones are flagged
+ * (duplicate_of) and sent to Needs Review.
  * Returns how many were newly flagged.
  */
 export async function findDuplicates(): Promise<{ flagged: number }> {
@@ -232,15 +234,16 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
     card_last4: string | null;
     duplicate_of: string | null;
     not_duplicate: boolean;
-    receipt_files: { file_name: string }[];
+    receipt_files: { content_sha256: string | null }[];
   }>((from, to) =>
     asPage(
       supabase
         .from("receipts")
         .select(
-          "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(file_name)"
+          "id, created_at, receipt_date, vendor_name, ttd_amount, amount, card_last4, duplicate_of, not_duplicate, receipt_files(content_sha256)"
         )
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to)
     )
   );
@@ -254,7 +257,8 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
       ttd_amount: r.ttd_amount,
       amount: r.amount,
       card_last4: r.card_last4,
-      fileName: r.receipt_files?.[0]?.file_name ?? null,
+      // By CONTENT (0027). A shared file name is not evidence of anything.
+      contentHash: r.receipt_files?.[0]?.content_sha256 ?? null,
     })) {
       const arr = groups.get(key) ?? [];
       arr.push(r.id);

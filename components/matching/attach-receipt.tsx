@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import { attachReceiptToCharge, type AttachResult } from "@/lib/matching/actions";
+import { useActionState, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { attachReceiptToCharge, undoAttach, type AttachResult } from "@/lib/matching/actions";
 import { formatTTD } from "@/lib/month";
 
 export type PickableReceipt = {
@@ -32,6 +33,11 @@ export function AttachReceipt({
     attachReceiptToCharge,
     null
   );
+  const router = useRouter();
+  const [undoing, startUndo] = useTransition();
+  // The match id most recently undone — its success message no longer applies.
+  const [undoneId, setUndoneId] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -53,8 +59,35 @@ export function AttachReceipt({
       .slice(0, 40);
   }, [query, receipts, txnAmount]);
 
-  if (state?.ok) {
-    return <span className="text-xs font-medium text-green-700">✓ {state.message}</span>;
+  if (state?.ok && state.undo && state.undo.matchId !== undoneId) {
+    const u = state.undo;
+    return (
+      <span className="flex items-center gap-2 text-xs font-medium text-green-700">
+        ✓ {state.message}
+        {/* A mis-tap on a phone is no longer permanent. */}
+        <button
+          type="button"
+          disabled={undoing}
+          onClick={() =>
+            startUndo(async () => {
+              const res = await undoAttach(u.matchId, u.prior);
+              if (res.ok) {
+                setUndoneId(u.matchId);
+                setUndoError(null);
+                setOpen(false);
+                router.refresh();
+              } else {
+                setUndoError(res.message);
+              }
+            })
+          }
+          className="min-h-11 rounded-lg border border-green-300 bg-white px-3 font-semibold text-green-900 hover:bg-green-50 disabled:opacity-60"
+        >
+          {undoing ? "Undoing…" : "Undo"}
+        </button>
+        {undoError && <span className="text-red-700">{undoError}</span>}
+      </span>
+    );
   }
 
   if (!open) {
@@ -131,6 +164,16 @@ export function AttachReceipt({
                     {r.ttd_amount != null ? formatTTD(Number(r.ttd_amount)) : "—"}
                     {exact ? " ·  exact" : ""}
                   </span>
+                  {/* Look at the actual document before attaching it. */}
+                  <a
+                    href={`/receipts/${r.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={(e) => e.stopPropagation()}
+                    className="whitespace-nowrap px-1 text-xs font-medium text-slate-700 underline"
+                  >
+                    view ↗
+                  </a>
                 </label>
               </li>
             );

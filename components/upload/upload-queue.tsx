@@ -25,6 +25,8 @@ export type QueueItem = {
   status: QueueStatus;
   result?: "confirmed" | "needs_review";
   message?: string;
+  /** Why the receipt needs review, in the extractor's own words. */
+  warnings?: string[];
   file?: File; // present for fresh uploads
   receiptId?: string; // present once the receipt row exists / for resumes
 };
@@ -117,7 +119,16 @@ export function UploadQueueProvider({ children }: { children: React.ReactNode })
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "processing failed");
 
-      update(item.id, { status: "done", result: json.status });
+      update(item.id, {
+        status: "done",
+        result: json.status,
+        // Say WHY it needs review, right here — "Needs review" alone sent
+        // Andrew hunting through the receipt to find out.
+        warnings: [
+          ...(json.duplicate ? ["Possible duplicate of a receipt you already have"] : []),
+          ...((json.result?.review_reasons as string[] | undefined) ?? []),
+        ],
+      });
     } catch (e) {
       update(item.id, { status: "error", message: String(e) });
     }
