@@ -568,11 +568,13 @@ export async function confirmMatch(formData: FormData): Promise<void> {
     }
   }
 
-  const { error } = await supabase
+  const { data: done, error } = await supabase
     .from("receipt_statement_matches")
     .update({ confirmed: true, status: "matched", rejected_at: null })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) backToMatching(statementId, `Could not confirm: ${error.message}`);
+  if (!done || done.length === 0) backToMatching(statementId, "That suggestion no longer exists.");
 
   if (txnId) {
     await supabase.from("statement_transactions").update({ is_matched: true }).eq("id", txnId);
@@ -598,15 +600,17 @@ export async function rejectMatch(formData: FormData): Promise<void> {
   if (!id) return;
 
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: done, error } = await supabase
     .from("receipt_statement_matches")
     .update({
       confirmed: false,
       status: "needs_review",
       rejected_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) backToMatching(statementId, `Could not reject: ${error.message}`);
+  if (!done || done.length === 0) backToMatching(statementId, "That match no longer exists.");
 
   if (txnId) {
     await supabase.from("statement_transactions").update({ is_matched: false }).eq("id", txnId);

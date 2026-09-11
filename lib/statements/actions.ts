@@ -68,18 +68,29 @@ export async function deleteStatement(
     };
   }
 
+  // The ROW first, the file second — and the file only if the row really
+  // went. The old order removed the PDF before knowing the delete would
+  // succeed, so a failed delete left a statement whose document was gone and
+  // could never be re-read. A delete RLS filters out reports no error and
+  // affects zero rows, hence .select() and the count check.
+  const { data: gone, error: deleteError } = await supabase
+    .from("statements")
+    .delete()
+    .eq("id", id)
+    .select("id");
+  if (deleteError)
+    return { ok: false, message: `Could not delete the statement: ${deleteError.message}` };
+  if (!gone || gone.length === 0)
+    return { ok: false, message: "That statement could not be deleted — it may already be gone." };
+
   if (statement.storage_path) {
     const { error: storageError } = await supabase.storage
       .from("documents")
       .remove([statement.storage_path]);
-    // A missing file must not block the row delete; a real failure should show.
+    // The record is gone; a leftover file is harmless. Log, don't fail.
     if (storageError && !/not found/i.test(storageError.message))
-      return { ok: false, message: `Could not remove the file: ${storageError.message}` };
+      console.error("statement file cleanup failed after delete:", storageError.message);
   }
-
-  const { error: deleteError } = await supabase.from("statements").delete().eq("id", id);
-  if (deleteError)
-    return { ok: false, message: `Could not delete the statement: ${deleteError.message}` };
 
   revalidatePath("/statements");
   revalidatePath("/matching");

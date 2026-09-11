@@ -192,9 +192,11 @@ export function ReceiptsTable({
     if (!window.confirm(`Delete ${ids.length} receipt${ids.length === 1 ? "" : "s"}? This cannot be undone.`))
       return;
     startTransition(async () => {
-      await deleteReceipts(ids);
-      setPicked(new Set());
+      const res = await deleteReceipts(ids);
+      // Keep the selection when something failed, so it can be retried.
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 
@@ -202,9 +204,10 @@ export function ReceiptsTable({
     const ids = [...picked];
     if (ids.length === 0) return;
     startTransition(async () => {
-      await setReceiptsSent(ids, sent);
-      setPicked(new Set());
+      const res = await setReceiptsSent(ids, sent);
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 
@@ -212,9 +215,10 @@ export function ReceiptsTable({
     const ids = [...picked];
     if (ids.length === 0) return;
     startTransition(async () => {
-      await setReceiptsPaid(ids, paid);
-      setPicked(new Set());
+      const res = await setReceiptsPaid(ids, paid);
+      if (res.ok) setPicked(new Set());
       router.refresh();
+      toast(res.message, res.ok ? "success" : "error");
     });
   }
 

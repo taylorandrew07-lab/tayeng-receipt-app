@@ -7,9 +7,14 @@ import { CARD_TYPE_TO_PAYMENT, normalizeVendor } from "@/lib/classification/clas
 import { PAYMENT_LABEL } from "@/components/receipts/labels";
 import { duplicateKeys } from "@/lib/receipts/duplicates";
 import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
+import { removeReceiptsSafely, type RemoveClient } from "@/lib/receipts/remove";
 import type { PaymentMethod } from "@/lib/types";
 
 export type ReceiptFormState = { error?: string } | undefined;
+
+/** Outcome of a bulk action, so the screen can say what actually happened. */
+export type { BulkResult } from "@/lib/receipts/remove";
+import type { BulkResult } from "@/lib/receipts/remove";
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   "personal_card",
@@ -113,7 +118,7 @@ export async function saveReceipt(
     bill_back_normalized = normalizeVendor(nameRaw);
   }
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("receipts")
     .update({
       vendor_name,
@@ -134,9 +139,16 @@ export async function saveReceipt(
       bill_back_normalized,
       status: "confirmed",
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { error: error.message };
+  // RLS filters a row you may not touch down to ZERO rows and reports no
+  // error, so "no error" is not "saved". Say so rather than redirect away as
+  // if it worked.
+  if (!saved || saved.length === 0) {
+    return { error: "That receipt could not be saved — it may have been deleted. Reload and try again." };
+  }
 
   // --- Learn from the correction --------------------------------------
   if (vendor_name && category_id) {
@@ -172,29 +184,18 @@ export async function saveReceipt(
 
 /**
  * Deletes many receipts at once (bulk "delete selected" / "start over").
- * Removes their stored files first. RLS scopes everything to the user.
+ * Rows first, then ONLY the files of rows that were really deleted — see
+ * lib/receipts/remove.ts. RLS scopes everything to the user.
  */
-export async function deleteReceipts(ids: string[]): Promise<void> {
+export async function deleteReceipts(ids: string[]): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-
-  // Capture paths, delete the rows (cascades receipt_files), then best-effort
-  // remove the blobs — surfacing (not swallowing) any storage failure.
-  const { data: files } = await supabase
-    .from("receipt_files")
-    .select("storage_path")
-    .in("receipt_id", ids);
-  await supabase.from("receipts").delete().in("id", ids);
-  if (files && files.length > 0) {
-    const { error: rmErr } = await supabase.storage
-      .from("documents")
-      .remove(files.map((f) => f.storage_path));
-    if (rmErr) console.error("storage cleanup failed (bulk delete):", rmErr.message);
-  }
-
+  const removed = await removeReceiptsSafely(supabase as unknown as RemoveClient, ids);
   revalidatePath("/receipts");
   revalidatePath("/review");
+  revalidatePath("/reconcile");
+  return removed;
 }
 
 /**
@@ -289,31 +290,63 @@ export async function findDuplicates(): Promise<{ flagged: number }> {
  * Marks receipts as sent (archived) or not. "Sent" means they've been
  * submitted/handled, so they show as archived and can be filtered out.
  */
-export async function setReceiptsSent(ids: string[], sent: boolean): Promise<void> {
+
+export async function setReceiptsSent(ids: string[], sent: boolean): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("receipts")
     .update({ sent, sent_at: sent ? new Date().toISOString() : null })
-    .in("id", ids);
+    .in("id", ids)
+    .select("id");
   revalidatePath("/receipts");
+  revalidatePath("/reconcile");
+  return bulkOutcome(error, data, ids.length, sent ? "marked as sent" : "marked as not sent");
+}
+
+/**
+ * "Sent" and "paid" are the two facts the close-out and the reimbursement
+ * claim rest on. Previously both actions returned nothing, so a failure
+ * looked exactly like success and the receipt stayed on the list unexplained.
+ */
+function bulkOutcome(
+  error: { message: string } | null,
+  data: unknown[] | null,
+  wanted: number,
+  verb: string
+): BulkResult {
+  if (error) return { ok: false, message: `Nothing was ${verb}: ${error.message}`, count: 0 };
+  const n = data?.length ?? 0;
+  if (n === wanted) {
+    return { ok: true, message: `${n} receipt${n === 1 ? "" : "s"} ${verb}.`, count: n };
+  }
+  return {
+    ok: false,
+    message:
+      n === 0
+        ? `Nothing was ${verb} — those receipts may have been deleted.`
+        : `Only ${n} of ${wanted} were ${verb}.`,
+    count: n,
+  };
 }
 
 /**
  * Marks receipts paid / unpaid. Paid reimbursables drop off the dashboard's
  * outstanding total (the money has been reimbursed).
  */
-export async function setReceiptsPaid(ids: string[], paid: boolean): Promise<void> {
+export async function setReceiptsPaid(ids: string[], paid: boolean): Promise<BulkResult> {
   "use server";
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return { ok: false, message: "Nothing selected.", count: 0 };
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("receipts")
     .update({ paid, paid_at: paid ? new Date().toISOString() : null })
-    .in("id", ids);
+    .in("id", ids)
+    .select("id");
   revalidatePath("/receipts");
   revalidatePath("/dashboard");
+  return bulkOutcome(error, data, ids.length, paid ? "marked as paid" : "marked as unpaid");
 }
 
 export async function dismissDuplicate(formData: FormData): Promise<void> {
@@ -334,19 +367,12 @@ export async function deleteReceipt(formData: FormData): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
 
-  const { data: files } = await supabase
-    .from("receipt_files")
-    .select("storage_path")
-    .eq("receipt_id", id);
-  await supabase.from("receipts").delete().eq("id", id);
-  if (files && files.length > 0) {
-    const { error: rmErr } = await supabase.storage
-      .from("documents")
-      .remove(files.map((f) => f.storage_path));
-    if (rmErr) console.error("storage cleanup failed (delete receipt):", rmErr.message);
-  }
-
+  const res = await removeReceiptsSafely(supabase as unknown as RemoveClient, [id]);
   revalidatePath("/receipts");
   revalidatePath("/review");
+  revalidatePath("/reconcile");
+  // On failure go BACK to the receipt and say why, instead of landing on the
+  // list as though it had worked.
+  if (!res.ok) redirect(`/receipts/${id}?msg=${encodeURIComponent(res.message)}`);
   redirect("/receipts");
 }

@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 // application modules the same way the app does.
 export default defineConfig({
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./", import.meta.url)),
+      // The real package throws outside a React Server build; see the stub.
+      "server-only": fileURLToPath(new URL("./test/stubs/server-only.ts", import.meta.url)),
+    },
   },
   test: { include: ["**/*.test.ts"], environment: "node" },
 });
