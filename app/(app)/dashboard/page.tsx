@@ -3,13 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatCard } from "@/components/ui";
 import { currentMonthKey, formatMonthKey, formatTTD } from "@/lib/month";
 import type { Receipt } from "@/lib/types";
+import { asPage, fetchAll } from "@/lib/reconciliation/paginate";
 
 type Row = Pick<
   Receipt,
   | "id"
   | "status"
   | "reimbursable"
-  | "paid"
+  | "paid" | "sent"
   | "payment_method"
   | "ttd_amount"
   | "month_key"
@@ -22,21 +23,33 @@ export default async function DashboardPage() {
   // All receipts (excluding flagged duplicates) plus which are confirmed-matched
   // to a statement (referenced). Outstanding/paid accumulate across months —
   // they're about money owed/handled, not a single month. Fetched in parallel.
-  const [{ data }, { data: matched }] = await Promise.all([
-    supabase
-      .from("receipts")
-      .select("id, status, reimbursable, paid, payment_method, ttd_amount, month_key")
-      .is("duplicate_of", null),
-    supabase
-      .from("receipt_statement_matches")
-      .select("receipt_id")
-      .eq("confirmed", true),
+  // Paginated with a total order: these reads were unbounded, so past
+  // PostgREST's silent 1000-row cap every total on this page would quietly
+  // have stopped counting.
+  const [rows, matched] = await Promise.all([
+    fetchAll<Row>((from, to) =>
+      asPage<Row>(
+        supabase
+          .from("receipts")
+          .select("id, status, reimbursable, paid, sent, payment_method, ttd_amount, month_key")
+          .is("duplicate_of", null)
+          .order("id", { ascending: true })
+          .range(from, to)
+      )
+    ),
+    fetchAll<{ receipt_id: string | null }>((from, to) =>
+      asPage(
+        supabase
+          .from("receipt_statement_matches")
+          .select("receipt_id")
+          .eq("confirmed", true)
+          .order("id", { ascending: true })
+          .range(from, to)
+      )
+    ),
   ]);
-  const rows = (data ?? []) as Row[];
 
-  const referenced = new Set(
-    (matched ?? []).map((m) => m.receipt_id).filter(Boolean) as string[]
-  );
+  const referenced = new Set(matched.map((m) => m.receipt_id).filter(Boolean) as string[]);
 
   const ttd = (r: Row) => Number(r.ttd_amount ?? 0);
 
@@ -47,7 +60,13 @@ export default async function DashboardPage() {
 
   const company = rows.filter((r) => r.payment_method === "company_card");
   const companyTotal = company.reduce((s, r) => s + ttd(r), 0);
-  const companyNeedRef = company.filter((r) => !referenced.has(r.id));
+  // Still open = no statement line AND not yet sent to the accountant — the
+  // same test the Close-Out list uses. Ignoring `sent` made this card say "14
+  // need statement referencing" for receipts already sent (as "no statement
+  // line") on 9 Sep, while Close-Out correctly said nothing was open.
+  const companyNeedRef = company.filter(
+    (r) => r.status === "confirmed" && !referenced.has(r.id) && !r.sent
+  );
   const companyNeedRefCount = companyNeedRef.length;
 
   const needsReview = rows.filter((r) => r.status === "needs_review").length;
@@ -89,7 +108,7 @@ export default async function DashboardPage() {
           hint={
             companyNeedRefCount > 0
               ? `${companyNeedRefCount} need statement referencing`
-              : "All referenced to statements"
+              : "Nothing left to reference"
           }
           href="/receipts?month=all&kind=company"
         />
@@ -109,12 +128,12 @@ export default async function DashboardPage() {
           body="Got reimbursed? Open your unpaid reimbursables, select all, and mark them paid — they'll drop off your outstanding total."
         />
         <QuickLink
-          href="/matching"
-          title="Reference company card"
+          href="/reconcile"
+          title="Close out company card"
           body={
             companyNeedRefCount > 0
               ? `${companyNeedRefCount} company-card receipt${companyNeedRefCount === 1 ? "" : "s"} still need matching to a statement.`
-              : "All company-card receipts are referenced to a statement."
+              : "Every company-card receipt is matched or already sent to the accountant."
           }
         />
         <QuickLink
